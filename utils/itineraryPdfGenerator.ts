@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { MasterLocation, MasterMealPlan, MasterRoomType } from '../types';
+import { calculateTransitMatrix } from './transitDistanceEngine';
 
 export interface ItineraryPdfParams {
     tripDetails: any;
@@ -904,45 +905,8 @@ export const generateLuxuryItineraryPDF = async ({
     doc.text("Short Local Travel Guide (Distance & Transit Matrix):", margin, y);
     y += 2.5;
 
-    let travelGuideRows: string[][] = [];
-
-    if (isMaharashtra) {
-        travelGuideRows = [
-            ['Day 1', 'Pune  ->  Bhimashankar Hotel  ->  Darshan & Gupt Bhimashankar', '~115-130 Km', '3-4 Hrs driving + Local sightseeing'],
-            ['Day 2', 'Bhimashankar  ->  Ellora Caves & Kailasa Temple  ->  Grishneshwar', '~240-265 Km', '5-6 Hrs driving + Ellora sightseeing'],
-            ['Day 3', 'Grishneshwar Darshan  ->  Ajanta Caves (Optional)  ->  Shirdi', '~220-250 Km', '5-6 Hrs driving + Sightseeing'],
-            ['Day 4', 'Shirdi Sai Baba Darshan  ->  Nashik Sightseeing  ->  Trimbakeshwar', '~115-135 Km', '3-4 Hrs driving + Temple darshan'],
-            ['Day 5', 'Trimbakeshwar Darshan  ->  Mumbai Hotel  ->  City Sightseeing', '~175-195 Km', '4-5 Hrs driving + City leisure'],
-            ['Day 6', 'Mumbai Hotel  ->  Siddhivinayak Darshan  ->  Railway Station / Airport Drop', '~35-50 Km', 'Local transfer + Departure buffer'],
-            ['Total', 'Complete Maharashtra Jyotirlinga & Heritage Circuit', '~900-1025 Km', `${tripDetails.days} Days / ${tripDetails.nights} Nights`]
-        ];
-    } else if (isVaranasi) {
-        travelGuideRows = [
-            ['Day 1', `${destinationNames[0] || 'Varanasi'} Airport  ->  Hotel  ->  Local Darshan & Sightseeing`, '~40-50 Km', 'Local sightseeing / 3-4 Hrs excluding darshan'],
-            ['Day 2', `${destinationNames[0] || 'Varanasi'} Local Sightseeing  ->  Sarnath  ->  Hotel`, '~55-70 Km', 'Full Day Local Sightseeing'],
-            ['Day 3', `${destinationNames[0] || 'Varanasi'}  ->  ${destinationNames[1] || 'Prayagraj'} Local Sightseeing & Sangam`, '~145-165 Km', '4-5 Hrs driving excluding sightseeing/darshan'],
-            ['Day 4', `${destinationNames[1] || 'Prayagraj'}  ->  Chitrakoot Sightseeing  ->  ${destinationNames[2] || 'Ayodhya'}`, '~410-440 Km', '9-11 Hrs driving excluding sightseeing'],
-            ['Day 5', `${destinationNames[2] || 'Ayodhya'}  ->  Mandir Darshan  ->  Airport Transfer`, '~225-245 Km', '5-6 Hrs driving excluding darshan'],
-            ['Total', 'Complete Tour including all local transfers & sightseeing', '~875-970 Km', `${tripDetails.days} Days / ${tripDetails.nights} Nights`]
-        ];
-    } else {
-        // Map all days comprehensively (no artificial cutoff)
-        travelGuideRows = itineraryList.map(d => {
-            const dayTitle = cleanTitle(d.title || `${destinationName} Sightseeing`);
-            return [
-                `Day ${d.day}`,
-                `${cleanText(destinationName)}: ${dayTitle}`,
-                '~45-90 Km',
-                'Excursion & Dedicated Mobility'
-            ];
-        });
-        travelGuideRows.push([
-            'Total',
-            `Complete ${cleanTitle(routeString)} Circuit Transfers & Sightseeing`,
-            `~${tripDetails.days * 60}-${tripDetails.days * 110} Km`,
-            `${tripDetails.days} Days / ${tripDetails.nights} Nights`
-        ]);
-    }
+    const transitMatrix = calculateTransitMatrix(itineraryList, tripDetails, destinationNames);
+    const travelGuideRows = transitMatrix.rows;
 
     autoTable(doc, {
         startY: y,

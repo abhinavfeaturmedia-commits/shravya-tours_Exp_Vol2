@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { parseDmcItinerary, ParsedDmcPackage, DMC_AI_MODELS, DmcAiModelOption } from '../../../src/lib/pdfItineraryParser';
 import { useItinerary, ItineraryItem, ServiceType } from '../ItineraryContext';
+import { useData } from '../../../context/DataContext';
 import { toast } from 'sonner';
 
 interface PdfItineraryImportModalProps {
@@ -47,6 +48,7 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
   onSuccess
 }) => {
   const { updateTripDetails, replaceAllItems, updateDayMeta, items: currentItems, tripDetails } = useItinerary();
+  const { masterMealPlans } = useData();
 
   // Input Mode: PDF file or Raw Text (WhatsApp / Email)
   const [inputMode, setInputMode] = useState<'pdf' | 'text'>('pdf');
@@ -237,12 +239,19 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
           order: idx
         }))
       : [{
-          locationId: parsedData.destination || 'Almaty',
-          nights: parsedData.nights || 5,
+          locationId: parsedData.destination || 'Custom Tour',
+          nights: parsedData.nights || Math.max(1, (parsedData.days || 1) - 1),
           order: 0
         }];
 
     // 2. Update Trip Details (Route Legs, Start Date, Room Sharing & Dining Plan)
+    const paxCount = Number(parsedData.paxDetails?.adults) || 2;
+    const computedRooms = parsedData.roomsCount || Math.max(1, Math.ceil(paxCount / (parsedData.roomSharing === 'Triple' ? 3 : parsedData.roomSharing === 'Quad' ? 4 : parsedData.roomSharing === 'Single' ? 1 : 2)));
+
+    // Match meal plan with master meal plans to ensure mealPlanId is in sync
+    const targetMealPlanCode = parsedData.mealPlanCode || 'MAP';
+    const matchedMealPlan = masterMealPlans?.find(m => m.code === targetMealPlanCode);
+
     updateTripDetails({
       title: isAppend ? (tripDetails?.title || parsedData.title) : parsedData.title,
       destination: isAppend ? (tripDetails?.destination || parsedData.destination) : parsedData.destination,
@@ -250,10 +259,12 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
       startDate: parsedData.startDate || tripDetails?.startDate || new Date().toISOString().split('T')[0],
       days: isAppend ? baseDayOffset + parsedData.days : parsedData.days,
       nights: isAppend ? baseNightsOffset + parsedData.nights : parsedData.nights,
-      adults: parsedData.paxDetails?.adults || tripDetails?.adults || 2,
+      adults: paxCount,
       children: parsedData.paxDetails?.children ?? tripDetails?.children ?? 0,
       roomSharing: (parsedData.roomSharing as any) || tripDetails?.roomSharing || 'Double',
-      mealPlanCode: (parsedData.mealPlanCode as any) || tripDetails?.mealPlanCode || 'CP',
+      roomsCount: computedRooms,
+      mealPlanCode: targetMealPlanCode,
+      mealPlanId: matchedMealPlan?.id || targetMealPlanCode,
       extraBedNotes: parsedData.roomSharing === 'Triple'
         ? 'Triple sharing basis with extra bed / rollaway mattress setup'
         : parsedData.roomSharing === 'Quad'
@@ -265,9 +276,8 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
       destinationsList: parsedData.destinationsList
     });
 
-    // 2. Build and inject day-by-day items
+    // 3. Build and inject day-by-day items
     const newItems: Omit<ItineraryItem, 'sellPrice'>[] = [];
-    const totalDaysCount = parsedData.daysPlan.length;
 
     // Supplier pricing distribution helper (supports multi-currency conversion to INR)
     let costPerPerson = parsedData.pricing?.costPerPerson || 0;
@@ -285,8 +295,57 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
       totalPackageCost = Math.round(totalPackageCost * 23);
     }
 
-    const paxCount = parsedData.paxDetails?.adults || 2;
-    const targetNetBase = costPerPerson > 0 ? costPerPerson : (totalPackageCost > 0 ? Math.round(totalPackageCost / paxCount) : 0);
+    // Crux: Calculate total net package cost for the WHOLE booking (avoids double-division bug)
+    let totalNetToDistribute = 0;
+    if (totalPackageCost > 0) {
+      totalNetToDistribute = totalPackageCost;
+    } else if (costPerPerson > 0) {
+      totalNetToDistribute = Math.round(costPerPerson * paxCount);
+    }
+
+    // Pre-calculate service counts to distribute supplier cost proportionally across all days
+    let hotelItemsCount = 0;
+    let transportItemsCount = 0;
+    let activityItemsCount = 0;
+
+    parsedData.daysPlan.forEach(day => {
+      day.items.forEach(act => {
+        const sType = ['hotel', 'activity', 'transport', 'flight', 'guide', 'note', 'visa'].includes(act.type) ? act.type : 'activity';
+        if (sType === 'hotel') hotelItemsCount++;
+        else if (sType === 'transport') transportItemsCount++;
+        else if (sType === 'activity' || sType === 'guide') activityItemsCount++;
+      });
+    });
+
+    // Proportional weighting based on standard DMC package allocation:
+    // Hotels: ~55%, Transport: ~35%, Sightseeing & Activities: ~10%
+    let hotelWeight = 0;
+    let transportWeight = 0;
+    let activityWeight = 0;
+
+    if (hotelItemsCount > 0 && transportItemsCount > 0 && activityItemsCount > 0) {
+      hotelWeight = 0.55;
+      transportWeight = 0.35;
+      activityWeight = 0.10;
+    } else if (hotelItemsCount > 0 && transportItemsCount > 0) {
+      hotelWeight = 0.60;
+      transportWeight = 0.40;
+    } else if (hotelItemsCount > 0 && activityItemsCount > 0) {
+      hotelWeight = 0.70;
+      activityWeight = 0.30;
+    } else if (transportItemsCount > 0 && activityItemsCount > 0) {
+      transportWeight = 0.75;
+      activityWeight = 0.25;
+    } else if (hotelItemsCount > 0) {
+      hotelWeight = 1.0;
+    } else if (transportItemsCount > 0) {
+      transportWeight = 1.0;
+    } else if (activityItemsCount > 0) {
+      activityWeight = 1.0;
+    }
+
+    let assignedTotalNet = 0;
+    let primaryCostItemIdx = -1;
 
     parsedData.daysPlan.forEach((day, dIdx) => {
       const targetDayNum = baseDayOffset + day.day;
@@ -305,12 +364,19 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
 
         // Calculate assigned net cost
         let itemNetCost = Number(act.cost) || 0;
-        if (itemNetCost === 0 && distributeSupplierCost && targetNetBase > 0) {
-          if (sType === 'hotel') {
-            itemNetCost = Math.round((targetNetBase * 0.50) / Math.max(1, totalDaysCount));
-          } else if (sType === 'transport' && dIdx === 0) {
-            itemNetCost = Math.round(targetNetBase * 0.30);
+        if (itemNetCost === 0 && distributeSupplierCost && totalNetToDistribute > 0) {
+          if (sType === 'hotel' && hotelItemsCount > 0) {
+            itemNetCost = Math.round((totalNetToDistribute * hotelWeight) / hotelItemsCount);
+          } else if (sType === 'transport' && transportItemsCount > 0) {
+            itemNetCost = Math.round((totalNetToDistribute * transportWeight) / transportItemsCount);
+          } else if ((sType === 'activity' || sType === 'guide') && activityItemsCount > 0) {
+            itemNetCost = Math.round((totalNetToDistribute * activityWeight) / activityItemsCount);
           }
+        }
+
+        assignedTotalNet += itemNetCost;
+        if (itemNetCost > 0 && primaryCostItemIdx === -1) {
+          primaryCostItemIdx = newItems.length;
         }
 
         newItems.push({
@@ -320,7 +386,7 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
           title: act.title,
           description: act.description || '',
           netCost: itemNetCost,
-          baseMarkupPercent: 15,
+          baseMarkupPercent: 0,
           extraMarkupFlat: 0,
           quantity: 1,
           time: act.time || (actIdx === 0 ? '10:00 AM' : actIdx === 1 ? '02:00 PM' : '05:30 PM'),
@@ -328,6 +394,15 @@ export const PdfItineraryImportModal: React.FC<PdfItineraryImportModalProps> = (
         });
       });
     });
+
+    // Zero-rounding-loss reconciliation:
+    // If the sum of distributed item nets has integer rounding delta, reconcile with the primary item
+    if (distributeSupplierCost && totalNetToDistribute > 0 && primaryCostItemIdx >= 0) {
+      const roundingDiff = totalNetToDistribute - assignedTotalNet;
+      if (roundingDiff !== 0) {
+        newItems[primaryCostItemIdx].netCost = Math.max(0, newItems[primaryCostItemIdx].netCost + roundingDiff);
+      }
+    }
 
     if (isAppend) {
       replaceAllItems([...currentItems, ...newItems]);

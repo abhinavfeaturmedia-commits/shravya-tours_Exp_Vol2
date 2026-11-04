@@ -43,6 +43,7 @@ export interface ParsedDmcPackage {
   nights: number;
   startDate?: string;
   roomSharing?: 'Single' | 'Double' | 'Triple' | 'Quad';
+  roomsCount?: number;
   mealPlanCode?: 'EP' | 'CP' | 'MAP' | 'AP' | 'AI';
   hotelsList?: Array<{
     hotelName: string;
@@ -97,6 +98,15 @@ export const DMC_AI_MODELS: DmcAiModelOption[] = [
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-300'
   },
   {
+    id: 'openrouter/free',
+    name: 'OpenRouter Free Mesh',
+    tag: 'Fast & Dynamic',
+    context: '200k Context',
+    description: 'High-speed cluster with instant load balancing across available free AI models.',
+    icon: '⚡',
+    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300'
+  },
+  {
     id: 'nvidia/nemotron-3-ultra-550b-a55b:free',
     name: 'NVIDIA Nemotron 3 Ultra 550B',
     tag: 'Best Reasoning',
@@ -120,28 +130,32 @@ export const DMC_AI_MODELS: DmcAiModelOption[] = [
     tag: 'High Precision',
     context: '262k Context',
     description: 'DeepMind dense model. Strict JSON schema with rich Indian & global travel circuit expertise.',
-    icon: '⚡',
-    badgeColor: 'bg-sky-100 text-sky-800 border-sky-300'
-  },
-  {
-    id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-    name: 'NVIDIA Nemotron Nano Omni',
-    tag: 'CoT Reasoning',
-    context: '256k Context',
-    description: 'Chain-of-thought reasoning to resolve conflicting supplier notes and night/day count mismatches.',
-    icon: '🎯',
-    badgeColor: 'bg-purple-100 text-purple-800 border-purple-300'
-  },
-  {
-    id: 'openrouter/free',
-    name: 'OpenRouter Dynamic Mesh',
-    tag: 'Dynamic Failover',
-    context: '200k Context',
-    description: 'Dynamic load balancing with instant failover across the entire cloud cluster.',
     icon: '🌟',
-    badgeColor: 'bg-stone-100 text-stone-800 border-stone-300'
+    badgeColor: 'bg-sky-100 text-sky-800 border-sky-300'
   }
 ];
+
+// Helper to safely parse database settings values whether string, JSON, or boolean
+const safeParseSetting = (val: any): any => {
+  if (val === undefined || val === null) return '';
+  if (typeof val === 'boolean' || typeof val === 'number') return val;
+  if (typeof val !== 'string') return val;
+  const trimmed = val.trim();
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+};
 
 // ─── OpenRouter / AI Settings Helper ──────────────────────────────────────────
 
@@ -152,16 +166,16 @@ const getOpenRouterConfig = async () => {
     const config = {
       enabled: false,
       apiKey: '',
-      defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b:free'
+      defaultModel: 'openrouter/free'
     };
     if (data && Array.isArray(data)) {
       data.forEach((item: any) => {
         if (item.key === 'integrations.openrouter.enabled') {
-          try { config.enabled = JSON.parse(item.value); } catch {}
+          config.enabled = Boolean(safeParseSetting(item.value));
         } else if (item.key === 'integrations.openrouter.apiKey') {
-          try { config.apiKey = JSON.parse(item.value); } catch {}
+          config.apiKey = String(safeParseSetting(item.value) || '').trim();
         } else if (item.key === 'integrations.openrouter.defaultModel') {
-          try { config.defaultModel = JSON.parse(item.value); } catch {}
+          config.defaultModel = String(safeParseSetting(item.value) || '').trim() || 'openrouter/free';
         }
       });
     }
@@ -170,7 +184,7 @@ const getOpenRouterConfig = async () => {
     return {
       enabled: false,
       apiKey: '',
-      defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b:free'
+      defaultModel: 'openrouter/free'
     };
   }
 };
@@ -242,6 +256,9 @@ Return ONLY a valid raw JSON object matching this exact schema (no markdown form
   "destination": "Kashmir",
   "days": 6,
   "nights": 5,
+  "roomSharing": "Double",
+  "roomsCount": 1,
+  "mealPlanCode": "MAP",
   "destinationsList": [
     { "name": "Srinagar", "nights": 3 },
     { "name": "Gulmarg", "nights": 1 },
@@ -348,14 +365,12 @@ async function callAiWithPrompt(
       candidateModels.push(config.defaultModel.replace(/^["']|["']$/g, '').trim());
     }
 
-    // 4. Default frontier reasoning queue
+    // 4. Default frontier reasoning queue (prioritize fast, healthy free models)
     candidateModels.push(
-      'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'google/gemma-4-31b-it:free',
-      'nvidia/nemotron-3.5-super-vl:free',
-      'google/gemma-4-26b-a4b-it:free',
       'openrouter/free',
-      'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
+      'nvidia/nemotron-3-ultra-550b-a55b:free',
+      'nvidia/nemotron-3.5-super-vl:free',
+      'google/gemma-4-31b-it:free'
     );
 
     const uniqueModels = Array.from(new Set(candidateModels.filter(Boolean)));
@@ -460,22 +475,47 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
 
   // 1. Detect Destination & Country
   const globalDestinations = [
-    'Almaty', 'Kazakhstan', 'Astana', 'Tashkent', 'Samarkand', 'Baku', 'Azerbaijan', 'Georgia', 'Tbilisi',
-    'Kashmir', 'Ladakh', 'Himachal', 'Manali', 'Shimla', 'Goa', 'Kerala', 'Dubai', 'Abu Dhabi',
-    'Bali', 'Thailand', 'Phuket', 'Bangkok', 'Vietnam', 'Singapore', 'Maldives', 'Sikkim',
-    'Andaman', 'Rajasthan', 'Jaipur', 'Udaipur', 'Uttarakhand', 'Switzerland', 'Paris', 'London'
+    // Himachal & Hill Stations
+    'Manali', 'Shimla', 'Dharamshala', 'Dalhousie', 'Spiti', 'Kasol', 'Kullu', 'Kaza', 'Jibhi', 'Bir Billing',
+    // Kashmir & Ladakh
+    'Kashmir', 'Srinagar', 'Gulmarg', 'Pahalgam', 'Sonmarg', 'Ladakh', 'Leh', 'Nubra', 'Pangong',
+    // North & West
+    'Goa', 'Jaipur', 'Udaipur', 'Jodhpur', 'Jaisalmer', 'Pushkar', 'Ranthambore', 'Rajasthan', 'Agra', 'Delhi',
+    'Varanasi', 'Prayagraj', 'Ayodhya', 'Chitrakoot', 'Rishikesh', 'Haridwar', 'Uttarakhand', 'Nainital', 'Mussoorie', 'Jim Corbett',
+    // South India
+    'Kerala', 'Munnar', 'Alleppey', 'Thekkady', 'Kochi', 'Wayanad', 'Kovalam', 'Ooty', 'Kodaikanal', 'Coorg',
+    'Mysore', 'Bangalore', 'Hampi', 'Rameshwaram', 'Kanyakumari',
+    // East & North East
+    'Sikkim', 'Gangtok', 'Darjeeling', 'Meghalaya', 'Shillong', 'Cherrapunji', 'Kaziranga', 'Assam', 'Arunachal', 'Tawang',
+    'Andaman', 'Port Blair', 'Havelock',
+    // International
+    'Almaty', 'Kazakhstan', 'Astana', 'Tashkent', 'Samarkand', 'Uzbekistan', 'Baku', 'Azerbaijan', 'Georgia', 'Tbilisi',
+    'Dubai', 'Abu Dhabi', 'Sharjah', 'UAE', 'Bali', 'Indonesia', 'Thailand', 'Phuket', 'Bangkok', 'Krabi', 'Pattaya',
+    'Vietnam', 'Hanoi', 'Da Nang', 'Ho Chi Minh', 'Singapore', 'Malaysia', 'Kuala Lumpur', 'Maldives', 'Sri Lanka',
+    'Mauritius', 'Seychelles', 'Switzerland', 'Paris', 'London', 'Europe', 'Turkey', 'Istanbul', 'Egypt', 'Nepal', 'Bhutan'
   ];
+
   let detectedDestination = 'Custom Tour';
-  for (const dest of globalDestinations) {
-    if (new RegExp(`\\b${dest}\\b`, 'i').test(cleanRaw)) {
-      detectedDestination = dest;
-      break;
+  const destExplicitMatch = cleanRaw.match(/(?:Destination|Sector|Circuit|Location|Region)\s*[:\-\|]\s*([A-Za-z0-9\s,•\-\|]+)/i);
+  if (destExplicitMatch) {
+    const rawDest = destExplicitMatch[1].split(/\n/)[0].replace(/^[:\-\|\s]+|[:\-\|\s]+$/g, '').trim();
+    if (rawDest && rawDest.length > 2 && rawDest.length < 80) {
+      detectedDestination = rawDest;
+    }
+  }
+
+  if (detectedDestination === 'Custom Tour') {
+    for (const dest of globalDestinations) {
+      if (new RegExp(`\\b${dest}\\b`, 'i').test(cleanRaw)) {
+        detectedDestination = dest;
+        break;
+      }
     }
   }
 
   // 2. Detect duration (e.g. 5N/6D or 6 Days)
-  let daysCount = 6;
-  let nightsCount = 5;
+  let daysCount = 5;
+  let nightsCount = 4;
   const durationMatch = cleanRaw.match(/(\d+)\s*(?:Nights?|N)\s*[\/&\-]\s*(\d+)\s*(?:Days?|D)/i) ||
                        cleanRaw.match(/(\d+)\s*(?:Days?|D)\s*[\/&\-]\s*(\d+)\s*(?:Nights?|N)/i);
 
@@ -495,38 +535,72 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
     }
   }
 
-  // 3. Detect Title with Negative Salutation Filter
-  const salutationPatterns = [
-    /dear\s*(?:sir|madam|guest|customer|all)/i,
-    /greetings\s*from/i,
+  // 3. Detect Title with Strong Negative Filter for Proposal Salutations & Greetings
+  const salutationIntroPatterns = [
+    /we\s*are\s*pleased/i,
+    /kindly\s*review/i,
+    /dear\s*(?:sir|madam|guest|customer|all|traveler)/i,
+    /greetings\s*(?:from|to)/i,
     /commercial\s*proposal/i,
     /travel\s*quotation/i,
     /tour\s*proposal/i,
     /to\s*whom\s*it\s*may\s*concern/i,
     /spas\s*tours/i,
-    /please\s*find\s*given\s*below/i,
+    /please\s*find\s*(?:given|attached|below)/i,
     /thank\s*you/i,
-    /welcome\s*to\s*our/i,
+    /welcome\s*to\s*(?:our|shravya|shrawello)/i,
     /package\s*overview/i,
     /short\s*itinerary/i,
-    /land\s*package/i
+    /land\s*package/i,
+    /as\s*discussed/i,
+    /with\s*reference\s*to/i,
+    /quotation\s*for/i,
+    /hope\s*this\s*email/i,
+    /details\s*mentioned\s*below/i,
+    /confirm\s*the\s*details/i
   ];
 
   let detectedTitle = '';
-  for (let i = 0; i < Math.min(lines.length, 25); i++) {
-    const line = lines[i];
-    if (salutationPatterns.some(p => p.test(line)) || line.startsWith('---') || line.toLowerCase().includes('page') || line.length < 6) {
-      continue;
-    }
-    if (/discovery|holiday|tour|escape|expedition|canyon|mountains|almaty|kazakhstan|package/i.test(line)) {
-      detectedTitle = line.replace(/^[•\-\*\s]+/, '').trim();
+
+  // First check explicit title patterns like "*KASHMIR DELIGHT 5N / 6D PACKAGE*" or "PACKAGE NAME: ..."
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const line = lines[i].trim();
+    if (!line || line.length < 5) continue;
+
+    const labelMatch = line.match(/(?:Tour\s*Title|Package\s*Name|Itinerary\s*Name|Tour\s*Name)\s*[:\-\|]\s*(.+)/i);
+    if (labelMatch && labelMatch[1].trim().length > 4) {
+      detectedTitle = labelMatch[1].trim().replace(/^[\*\#\-\s]+|[\*\#\-\s]+$/g, '');
       break;
+    }
+
+    const headingMatch = line.match(/^[\*\#\-\s]*(.+?\b(?:package|tour|holiday|trip|itinerary|delight|expedition|getaway|circuit|vacation)\b.*?)[\*\#\-\s]*$/i);
+    if (headingMatch) {
+      const candidate = headingMatch[1].trim();
+      const isIntro = salutationIntroPatterns.some(p => p.test(candidate));
+      if (!isIntro && candidate.length > 5 && candidate.length < 90) {
+        detectedTitle = candidate;
+        break;
+      }
+    }
+  }
+
+  // Second pass: general title heuristic
+  if (!detectedTitle) {
+    for (let i = 0; i < Math.min(lines.length, 25); i++) {
+      const line = lines[i].trim();
+      if (salutationIntroPatterns.some(p => p.test(line)) || line.startsWith('---') || line.toLowerCase().includes('page') || line.length < 6 || line.length > 85) {
+        continue;
+      }
+      if (/discovery|holiday|tour|escape|expedition|canyon|mountains|package|delight|circuit|getaway/i.test(line)) {
+        detectedTitle = line.replace(/^[•\-\*s]+/, '').replace(/[\*\#\-\s]+$/, '').trim();
+        break;
+      }
     }
   }
 
   if (!detectedTitle) {
     if (detectedDestination !== 'Custom Tour') {
-      detectedTitle = `${nightsCount}N/${daysCount}D ${detectedDestination} Discovery: Mountains, Canyons & Culture`;
+      detectedTitle = `${nightsCount}N/${daysCount}D ${detectedDestination} Tour Package`;
     } else if (fileName) {
       detectedTitle = fileName.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
     } else {
@@ -534,9 +608,9 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
     }
   }
 
-  // 4. Start Date / Check-In Date Extraction
+  // 4. Start Date Extraction
   let detectedStartDate: string | undefined;
-  const checkInMatch = cleanRaw.match(/(?:Check\s*In|Check-In|Start\s*Date|Arrival\s*Date)\s*[:\-\s]+(\d{1,2}\s+[a-zA-Z]{3,9}\s+\d{4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})/i);
+  const checkInMatch = cleanRaw.match(/(?:Check\s*In|Check-In|Start\s*Date|Arrival\s*Date|Travel\s*Date)\s*[:\-\s]+(\d{1,2}\s+[a-zA-Z]{3,9}\s+\d{4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})/i);
   if (checkInMatch) {
     try {
       const parsedDate = new Date(checkInMatch[1].trim());
@@ -546,128 +620,195 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
     } catch {}
   }
 
-  // 5. Room Sharing & Occupancy
+  // 5. Room Sharing, Rooms Count & Meal Plan
   let detectedRoomSharing: 'Single' | 'Double' | 'Triple' | 'Quad' = 'Double';
-  if (/\bTriple\b|Triple\s*Sharing|3\s*Pax/i.test(cleanRaw)) detectedRoomSharing = 'Triple';
-  else if (/\bQuad\b|Quad\s*Sharing/i.test(cleanRaw)) detectedRoomSharing = 'Quad';
-  else if (/\bSingle\b|Single\s*Room/i.test(cleanRaw)) detectedRoomSharing = 'Single';
+  if (/Double\s*Sharing|Twin\s*Sharing|\bDouble\b|\bTwin\b/i.test(cleanRaw)) detectedRoomSharing = 'Double';
+  else if (/Triple\s*Sharing|\bTriple\b/i.test(cleanRaw)) detectedRoomSharing = 'Triple';
+  else if (/Quad\s*Sharing|\bQuad\b/i.test(cleanRaw)) detectedRoomSharing = 'Quad';
+  else if (/Single\s*Room|Single\s*Sharing|\bSingle\b/i.test(cleanRaw)) detectedRoomSharing = 'Single';
 
-  // 6. Meal Plan Code
+  let detectedRoomsCount = 1;
+  const roomsExplicitMatch = cleanRaw.match(/(\d+)\s*(?:Super\s*Deluxe|Deluxe|Standard|Executive|Luxury|Comfort)?\s*Rooms?/i);
+  if (roomsExplicitMatch) {
+    const rCount = parseInt(roomsExplicitMatch[1], 10);
+    if (!isNaN(rCount) && rCount > 0) detectedRoomsCount = rCount;
+  }
+
   let detectedMealPlan = 'CP (Breakfast)';
   let detectedMealPlanCode: 'EP' | 'CP' | 'MAP' | 'AP' | 'AI' = 'CP';
-  if (/MAPAI|MAP|Breakfast\s*&\s*Dinner|Indian\s*Dinner|Dinner\s*Transfer/i.test(cleanRaw)) {
+  if (/MAPAI|\bMAP\b|Breakfast\s*[\+&]\s*Dinner|Breakfast\s+and\s+Dinner|Indian\s*Dinner|Dinner\s*Transfer/i.test(cleanRaw)) {
     detectedMealPlan = 'MAP (Breakfast & Dinner)';
     detectedMealPlanCode = 'MAP';
-  } else if (/APAI|AP|All\s*Meals/i.test(cleanRaw)) {
+  } else if (/APAI|\bAP\b|All\s*Meals/i.test(cleanRaw)) {
     detectedMealPlan = 'AP (All Meals)';
     detectedMealPlanCode = 'AP';
-  } else if (/EPAI|EP|Room\s*Only/i.test(cleanRaw)) {
+  } else if (/EPAI|\bEP\b|Room\s*Only/i.test(cleanRaw)) {
     detectedMealPlan = 'EP (Room Only)';
     detectedMealPlanCode = 'EP';
   }
 
-  // 7. Hotel Extraction from Quotation Table
+  // 6. Dynamic Hotel Extraction
   const hotelsList: Array<{ hotelName: string; starRating?: string; roomCategory?: string; occupancy?: string; costPerPerson?: number }> = [];
-  const hotelBlockMatch = cleanRaw.match(/Hotel\s+([A-Za-z0-9\s]{3,35})\s+Hotel\s+([A-Za-z0-9\s]{3,35})/);
-  let primaryHotelName = 'Hotel Kazzhol';
-  if (hotelBlockMatch) {
-    primaryHotelName = hotelBlockMatch[1].trim();
-    hotelsList.push({
-      hotelName: primaryHotelName,
-      starRating: '4 Star',
-      roomCategory: 'Comfort Deluxe Room',
-      occupancy: detectedRoomSharing
+  let primaryHotelName = '';
+
+  // A. Check dedicated hotel section
+  const hotelSectionMatch = cleanRaw.match(/(?:HOTELS?|ACCOMMODATION|STAY DETAILS?|PROPOSED HOTELS?)[\s\S]*?(?=(?:TRANSPORT|VEHICLE|CAB|INCLUSIONS|EXCLUSIONS|NET|PRICE|TOTAL|TERMS|$))/i);
+  if (hotelSectionMatch) {
+    const rawLines = hotelSectionMatch[0].split('\n');
+    const hotelLines: string[] = [];
+    rawLines.forEach((l, idx) => {
+      const trimmed = l.trim();
+      if (!trimmed) return;
+      if (idx === 0) {
+        const afterColon = trimmed.replace(/^(?:HOTELS?|ACCOMMODATION|STAY DETAILS?|PROPOSED HOTELS?)\s*[:\-\|]?\s*/i, '').trim();
+        if (afterColon.length > 3) hotelLines.push(afterColon);
+      } else {
+        hotelLines.push(trimmed);
+      }
     });
-    const secondaryHotel = hotelBlockMatch[2].trim().split('\n')[0].trim();
-    if (secondaryHotel) {
-      hotelsList.push({
-        hotelName: secondaryHotel,
-        starRating: '4 Star',
-        roomCategory: 'Junior Suite',
-        occupancy: detectedRoomSharing
-      });
+
+    for (const hLine of hotelLines) {
+      const cleanH = hLine.replace(/^[•\-\*d\.\)]+\s*/, '').trim();
+      if (!cleanH || cleanH.length < 4 || /^(?:inclusions|exclusions|rate|cost|vehicle|transport|cab|meal|plan|breakfast|dinner)/i.test(cleanH)) continue;
+      
+      const parts = cleanH.split(/[:\-]/);
+      let candidateName = parts.length > 1 ? parts[1].trim() : parts[0].trim();
+      candidateName = candidateName.split(/[\(\/]/)[0].trim();
+
+      if (candidateName && candidateName.length > 3 && !/check-in|check-out|transfer|vehicle|transport|driver|meal|breakfast|dinner|lunch|plan/i.test(candidateName)) {
+        if (!primaryHotelName) primaryHotelName = candidateName;
+        hotelsList.push({
+          hotelName: candidateName,
+          starRating: /5\s*Star/i.test(cleanH) ? '5 Star' : /3\s*Star/i.test(cleanH) ? '3 Star' : '4 Star',
+          roomCategory: /suite/i.test(cleanH) ? 'Suite' : /super deluxe/i.test(cleanH) ? 'Super Deluxe' : 'Deluxe Room',
+          occupancy: detectedRoomSharing
+        });
+      }
     }
   }
 
-  // 8. Dedicated Vehicle & Mobility
-  let detectedVehicle = 'Dedicated Private Chauffeur-Driven Tourist Vehicle';
-  if (/Innova Crysta/i.test(cleanRaw)) detectedVehicle = 'Toyota Innova Crysta';
-  else if (/Sedan/i.test(cleanRaw)) detectedVehicle = 'Private Dedicated Sedan';
-  else if (/Tempo Traveller/i.test(cleanRaw)) detectedVehicle = 'Private Tempo Traveller';
+  // B. Fallback regex search for Hotel names in document
+  if (!primaryHotelName) {
+    const hotelRegex = /(?:Hotel|Resort|Palace|Suites?|Inn|Retreat|Houseboat|Lodge|Camp)\s+([A-Za-z0-9&'\-\s]{3,30})/gi;
+    let hMatch;
+    while ((hMatch = hotelRegex.exec(cleanRaw)) !== null) {
+      const fullName = `${hMatch[0].trim()}`;
+      if (!/hotel\s+(?:check|transfer|booking|reservation|stay|pickup|drop|return)/i.test(fullName)) {
+        primaryHotelName = fullName;
+        hotelsList.push({
+          hotelName: primaryHotelName,
+          starRating: '4 Star',
+          roomCategory: 'Deluxe Room',
+          occupancy: detectedRoomSharing
+        });
+        break;
+      }
+    }
+  }
 
-  // 9. Pricing & Pax Extraction
+  if (!primaryHotelName) {
+    primaryHotelName = `Selected Hotel in ${detectedDestination}`;
+    hotelsList.push({
+      hotelName: primaryHotelName,
+      starRating: '4 Star',
+      roomCategory: 'Deluxe Room',
+      occupancy: detectedRoomSharing
+    });
+  }
+
+  // 7. Dynamic Vehicle Extraction
+  let detectedVehicle = 'Dedicated Private Chauffeur Vehicle';
+  if (/Innova Crysta/i.test(cleanRaw)) detectedVehicle = 'Toyota Innova Crysta';
+  else if (/Innova/i.test(cleanRaw)) detectedVehicle = 'Toyota Innova';
+  else if (/Swift Dzire|Dzire|Etios/i.test(cleanRaw)) detectedVehicle = 'Private Sedan (Swift Dzire / Etios)';
+  else if (/Sedan/i.test(cleanRaw)) detectedVehicle = 'Private Dedicated Sedan';
+  else if (/Tempo Traveller/i.test(cleanRaw)) detectedVehicle = 'Private Dedicated Tempo Traveller';
+  else if (/Ertiga|Scorpio|SUV/i.test(cleanRaw)) detectedVehicle = 'Private SUV (Ertiga / Scorpio)';
+
+  // 8. Pricing & Pax Extraction
+  let detectedAdults = 2;
+  const adultsPrefixMatch = cleanRaw.match(/([0-9]{1,2})\s*(?:Adults?|Guests?|Pax)\b/i);
+  const paxLabelMatch = cleanRaw.match(/(?:No\.?\s*of\s*pax|pax|guests?|adults?)\s*[:\-\|\s]+([0-9]{1,2})\s*(?:Adults?|Guests?|Pax)?\b/i);
+
+  if (adultsPrefixMatch) {
+    const p = parseInt(adultsPrefixMatch[1], 10);
+    if (!isNaN(p) && p > 0) detectedAdults = p;
+  } else if (paxLabelMatch) {
+    const p = parseInt(paxLabelMatch[1], 10);
+    if (!isNaN(p) && p > 0) detectedAdults = p;
+  }
+
+  // If rooms count wasn't explicitly stated, derive from adults & room sharing
+  if (!roomsExplicitMatch && detectedAdults > 0) {
+    detectedRoomsCount = Math.max(1, Math.ceil(detectedAdults / (detectedRoomSharing === 'Triple' ? 3 : detectedRoomSharing === 'Quad' ? 4 : detectedRoomSharing === 'Single' ? 1 : 2)));
+  }
+
   let totalCost = 0;
   let costPerPerson = 0;
   let detectedCurrency = 'INR';
 
-  const usdMatch = cleanRaw.match(/(?:\$|USD)\s*([\d,]+(?:\.\d+)?)/i) || cleanRaw.match(/([\d,]+(?:\.\d+)?)\s*(?:USD|\$)/i);
-  const inrMatch = cleanRaw.match(/(?:INR|Rs\.?|₹)\s*([\d,]{4,})/i);
+  // Specific check for total package value / cost in document
+  const inrTotalMatch = cleanRaw.match(/(?:TOTAL\s*PACKAGE\s*(?:VALUE|COST|PRICE|RATE)|PACKAGE\s*(?:VALUE|COST|PRICE|RATE)|TOTAL\s*(?:NET\s*)?(?:COST|VALUE|PRICE|AMOUNT)|NET\s*PACKAGE\s*(?:COST|VALUE))[\s\S]{0,35}?(?:INR|Rs\.?|₹)\s*([\d,]+)/i);
+  const inrPerPersonMatch = cleanRaw.match(/(?:(?:INR|Rs\.?|₹)\s*([\d,]+)[\s\S]{0,25}?(?:per\s*(?:person|pax|adult)|pp\b)|(?:per\s*(?:person|pax|adult)|cost\s*per\s*pax)[\s\S]{0,25}?(?:INR|Rs\.?|₹)\s*([\d,]+))/i);
+  const inrGeneralMatch = cleanRaw.match(/(?:TOTAL\s*PACKAGE\s*COST|TOTAL\s*NET\s*COST|PACKAGE\s*COST|NET\s*COST|RATE|PRICE|TOTAL)[\s\S]{0,30}?(?:INR|Rs\.?|₹)\s*([\d,]{4,})/i) ||
+                          cleanRaw.match(/(?:INR|Rs\.?|₹)\s*([\d,]{4,})/i);
 
-  if (usdMatch) {
+  const usdTotalMatch = cleanRaw.match(/(?:TOTAL\s*PACKAGE\s*(?:VALUE|COST|PRICE|RATE)|PACKAGE\s*(?:VALUE|COST|PRICE|RATE)|TOTAL\s*(?:NET\s*)?(?:COST|VALUE|PRICE|AMOUNT))[\s\S]{0,35}?(?:\$|USD)\s*([\d,]+(?:\.\d+)?)/i);
+  const usdPerPersonMatch = cleanRaw.match(/(?:\$|USD)\s*([\d,]+(?:\.\d+)?)\s*(?:per\s*(?:person|pax|adult)|pp\b)/i) ||
+                            cleanRaw.match(/(?:per\s*(?:person|pax|adult)|cost\s*per\s*pax)[\s\S]{0,25}?(?:\$|USD)\s*([\d,]+(?:\.\d+)?)/i);
+  const usdGeneralMatch = cleanRaw.match(/(?:\$|USD)\s*([\d,]+(?:\.\d+)?)/i) || cleanRaw.match(/([\d,]+(?:\.\d+)?)\s*(?:USD|\$)/i);
+
+  if (usdTotalMatch || usdPerPersonMatch || (cleanRaw.includes('$') || /USD\b/i.test(cleanRaw))) {
     detectedCurrency = 'USD';
-    const parsedAmt = parseFloat(usdMatch[1].replace(/,/g, ''));
-    if (!isNaN(parsedAmt) && parsedAmt > 10) {
-      if (/cost\s*per\s*person|per\s*pax|per\s*adult|triple|twin\s*sharing|pp\b/i.test(cleanRaw)) {
-        costPerPerson = parsedAmt;
-      } else {
-        totalCost = parsedAmt;
-      }
+    if (usdTotalMatch) {
+      totalCost = parseFloat(usdTotalMatch[1].replace(/,/g, ''));
+    } else if (usdPerPersonMatch) {
+      costPerPerson = parseFloat((usdPerPersonMatch[1] || usdPerPersonMatch[2]).replace(/,/g, ''));
+    } else if (usdGeneralMatch) {
+      const amt = parseFloat(usdGeneralMatch[1].replace(/,/g, ''));
+      if (amt > 10) totalCost = amt;
     }
-  } else if (inrMatch) {
+  } else if (inrTotalMatch || inrPerPersonMatch || inrGeneralMatch) {
     detectedCurrency = 'INR';
-    const parsedAmt = parseInt(inrMatch[1].replace(/,/g, ''), 10);
-    if (!isNaN(parsedAmt) && parsedAmt > 1000) {
-      if (/per\s*person|per\s*pax|per\s*adult|triple|twin\s*sharing/i.test(cleanRaw)) {
-        costPerPerson = parsedAmt;
-      } else {
-        totalCost = parsedAmt;
-      }
+    if (inrTotalMatch) {
+      totalCost = parseInt(inrTotalMatch[1].replace(/,/g, ''), 10);
+    } else if (inrPerPersonMatch) {
+      costPerPerson = parseInt((inrPerPersonMatch[1] || inrPerPersonMatch[2]).replace(/,/g, ''), 10);
+    } else if (inrGeneralMatch) {
+      const amt = parseInt(inrGeneralMatch[1].replace(/,/g, ''), 10);
+      if (amt > 1000) totalCost = amt;
     }
   }
 
-  let detectedAdults = 2;
-  const paxMatch = cleanRaw.match(/(?:No\s*of\s*pax|pax|guests?)\s*[:\(\s]*([0-9]{1,2})/i);
-  if (paxMatch) {
-    const pCount = parseInt(paxMatch[1], 10);
-    if (!isNaN(pCount) && pCount > 0) {
-      detectedAdults = pCount;
-    }
+  // Cross-calibrate totalCost and costPerPerson so both are accurately known
+  if (totalCost > 0 && !costPerPerson && detectedAdults > 0) {
+    costPerPerson = Math.round(totalCost / detectedAdults);
+  } else if (costPerPerson > 0 && !totalCost && detectedAdults > 0) {
+    totalCost = Math.round(costPerPerson * detectedAdults);
   }
 
-  // 10. Extract Day-by-Day Blocks & Filter Clutter
+  // 9. Day-by-Day Dynamic Extraction (Accurate & Precision per Uploaded Package)
   const dayRegex = /(?:^|\n)(?:Day|DAY|D)\s*([0-9]{1,2})\b[:\s\-\|]*(.*)/g;
-  const daysFound: Array<{ dayNum: number; startIndex: number }> = [];
-
+  const daysFound: Array<{ dayNum: number; rawHeader: string; startIndex: number }> = [];
   let match;
+
   while ((match = dayRegex.exec(cleanRaw)) !== null) {
     const dNum = parseInt(match[1], 10);
     if (!daysFound.some(d => d.dayNum === dNum)) {
       daysFound.push({
         dayNum: dNum,
+        rawHeader: (match[2] || '').trim(),
         startIndex: match.index
       });
     }
   }
 
-  const isDateOrWeekday = /^(?:\(?\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\)?|\d{1,2}[-/\.\s]+[a-zA-Z]{3,9}[-/\.\s]+\d{2,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})$/i;
+  // Sort by day number
+  daysFound.sort((a, b) => a.dayNum - b.dayNum);
+  const actualDaysCount = Math.max(daysCount, daysFound.length > 0 ? daysFound[daysFound.length - 1].dayNum : 5);
+  nightsCount = Math.max(1, actualDaysCount - 1);
 
-  const getSemanticDayTheme = (dNum: number, txt: string): string => {
-    const low = txt.toLowerCase();
-    if (low.includes('shymbulak') || low.includes('medeu')) {
-      return 'Shymbulak Mountain Resort & Medeu Gondola Cableway';
-    } else if (low.includes('charyn') || low.includes('canyon')) {
-      return 'Charyn Canyon Full Day Scenic Excursion';
-    } else if (low.includes('panfilov') || low.includes('zenkov') || low.includes('kok tobe')) {
-      return 'Almaty City Highlights: Panfilov Park, Zenkov Cathedral & Kok Tobe';
-    } else if (low.includes('green bazaar') || low.includes('rahat') || low.includes('chocolate') || low.includes('shopping')) {
-      return 'Cultural Discovery: Green Bazaar & Rahat Chocolate Tasting';
-    } else if (low.includes('airport') || low.includes('good-bye') || low.includes('check-out') || low.includes('departure')) {
-      return 'Hotel Check-Out & Airport Departure Transfer';
-    } else if (dNum === 1) {
-      return 'Arrival in Almaty, Chauffeur Welcome & Hotel Check-in';
-    }
-    return `Day ${dNum} Curated Sightseeing & Leisure`;
-  };
+  const isDateOrWeekday = /^(?:\(?\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*\)?|\d{1,2}(?:st|nd|rd|th)?[-/\.\s]+[a-zA-Z]{3,9}[-/\.\s]*\d{0,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})$/i;
 
   const daysPlan: ParsedDayPlan[] = [];
 
@@ -676,266 +817,257 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
       const nextD = daysFound[idx + 1];
       const dayRawText = nextD
         ? cleanRaw.slice(d.startIndex, nextD.startIndex)
-        : cleanRaw.slice(d.startIndex, d.startIndex + 2800);
+        : cleanRaw.slice(d.startIndex, d.startIndex + 3500);
 
-      const dayLines = dayRawText.split('\n').map(l => l.trim()).filter(Boolean);
-      const items: ParsedItineraryItem[] = [];
-      let fullDayNarrative = '';
+      const rawDayLines = dayRawText.split('\n').map(l => l.trim()).filter(Boolean);
+      
+      // Determine Day Title directly from document header
+      let dayTitle = '';
+      let cleanHeader = d.rawHeader.replace(/^[•\-\*s]+/, '').replace(/[\*\#\-\s]+$/, '').trim();
+      
+      // Strip dates or weekdays in header
+      cleanHeader = cleanHeader.replace(/\(?\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b\)?/gi, '').trim();
+      cleanHeader = cleanHeader.replace(/\b\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\s+\d{2,4}\b/gi, '').trim();
+      cleanHeader = cleanHeader.replace(/^[:\-\|\s]+|[:\-\|\s]+$/g, '').trim();
 
-      // Collect valid text lines, strictly filtering out date/weekday noise
+      // Collect descriptive narrative lines for this day
       const validTextLines: string[] = [];
-      for (let i = 1; i < dayLines.length; i++) {
-        const line = dayLines[i];
-        if (/^(?:EXCLUSIONS|IMPORTANT NOTES|CANCELLATION POLICY|SHORT ITINERARY|TERMS)/i.test(line)) {
+
+      // If header contains multiple sentences (e.g. "Day 1: Srinagar Airport Pick-up & Shikara Cruise. Overnight stay at Srinagar.")
+      if (cleanHeader && cleanHeader.includes('. ')) {
+        const headerParts = cleanHeader.split(/(?<=[.?!])\s+/);
+        cleanHeader = headerParts[0].replace(/[.?!]+$/, '').trim();
+        for (let i = 0; i < headerParts.length; i++) {
+          if (headerParts[i].trim().length > 4) validTextLines.push(headerParts[i].trim());
+        }
+      } else if (cleanHeader && cleanHeader.length > 5) {
+        validTextLines.push(cleanHeader);
+      }
+
+      if (cleanHeader && cleanHeader.length >= 4 && !isDateOrWeekday.test(cleanHeader)) {
+        dayTitle = cleanHeader;
+      }
+
+      for (let i = 1; i < rawDayLines.length; i++) {
+        const line = rawDayLines[i];
+        const cleanForHeaderCheck = line.replace(/^[•\-\*#\s]+/, '');
+        if (/^(?:EXCLUSIONS|INCLUSIONS|HOTELS?|STAY|ACCOMMODATION|IMPORTANT NOTES|CANCELLATION|SHORT ITINERARY|TERMS|COST|TOTAL|PRICE|TRANSPORT|VEHICLE|NET|RATE)/i.test(cleanForHeaderCheck)) {
           break;
         }
-        const cleanLine = line.replace(/^[•\-\*\d\.\)]+\s*/, '').trim();
-        if (isDateOrWeekday.test(cleanLine) || isDateOrWeekday.test(line)) {
-          continue;
-        }
-        if (/^(?:day itinerary remark|itinerary|remark|ticket included)$/i.test(cleanLine)) {
-          continue;
-        }
-        if (cleanLine.length < 5) {
-          continue;
-        }
-        fullDayNarrative += ' ' + cleanLine;
+        const cleanLine = line.replace(/^[•\-\*d\.\)]+\s*/, '').trim();
+        if (isDateOrWeekday.test(cleanLine) || isDateOrWeekday.test(line)) continue;
+        if (/^(?:day itinerary remark|itinerary|remark|ticket included|sightseeing|leisure)$/i.test(cleanLine)) continue;
+        if (cleanLine.length < 5) continue;
         validTextLines.push(cleanLine);
       }
 
-      const dayTheme = getSemanticDayTheme(d.dayNum, fullDayNarrative);
+      // If no title from header line, pick from first meaningful descriptive line
+      if (!dayTitle && validTextLines.length > 0) {
+        const firstLine = validTextLines[0];
+        if (firstLine.length < 65 && !firstLine.includes('.')) {
+          dayTitle = firstLine;
+          validTextLines.shift();
+        }
+      }
 
-      // Structure day items cleanly based on day number and content
-      if (d.dayNum === 1) {
-        items.push({
-          type: 'transport',
-          title: 'Airport Meet & Chauffeur Transfer to Hotel',
-          description: 'Meet & Greet with English-speaking chauffeur-guide at Almaty International Airport and private transfer to hotel.',
-          time: '11:00 AM',
-          duration: '1 Hour',
-          cost: 0,
-          transportDetails: { vehicleType: detectedVehicle, serviceMode: 'Private' }
-        });
-        items.push({
-          type: 'hotel',
-          title: `Check-in & Overnight Stay at ${primaryHotelName}`,
-          description: `4-Star accommodation in Comfort Deluxe Room on ${detectedRoomSharing} Sharing basis. Hotel amenities & buffet breakfast included.`,
-          time: '02:00 PM',
-          duration: 'Overnight',
-          cost: 0,
-          hotelDetails: {
-            hotelName: primaryHotelName,
-            roomType: 'Comfort Deluxe Room',
-            starRating: '4 Star',
-            mealPlan: detectedMealPlanCode
+      // Default semantic title if still empty
+      if (!dayTitle) {
+        if (d.dayNum === 1) {
+          dayTitle = `Arrival in ${detectedDestination} & Hotel Check-in`;
+        } else if (d.dayNum === actualDaysCount) {
+          dayTitle = `Hotel Check-Out & Departure from ${detectedDestination}`;
+        } else {
+          dayTitle = `Day ${d.dayNum}: ${detectedDestination} Sightseeing & Excursion`;
+        }
+      }
+
+      // Build Day Items dynamically based on actual text
+      const items: ParsedItineraryItem[] = [];
+      const combinedNarrative = validTextLines.join(' ');
+
+      // Split into distinct points if bullet points exist, or split into sentences
+      let sentencePoints: string[] = [];
+      if (validTextLines.length > 1) {
+        sentencePoints = validTextLines;
+      } else if (combinedNarrative.length > 0) {
+        sentencePoints = combinedNarrative.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 10);
+      }
+
+      if (sentencePoints.length > 0) {
+        sentencePoints.slice(0, 5).forEach((point, pIdx) => {
+          const low = point.toLowerCase();
+          let itemType: 'hotel' | 'activity' | 'transport' | 'flight' | 'guide' | 'note' | 'visa' = 'activity';
+          let time = pIdx === 0 ? '10:00 AM' : pIdx === 1 ? '01:30 PM' : pIdx === 2 ? '05:00 PM' : '07:30 PM';
+          let duration = '2 Hours';
+
+          if (/transfer|pickup|pick-up|drop|drive|travel to|proceed to|depart|arrival|board/i.test(low)) {
+            itemType = 'transport';
+            duration = '2-3 Hours';
+          } else if (/check-in|check in|checkin|overnight stay|hotel stay|stay at|sleep at/i.test(low)) {
+            itemType = 'hotel';
+            time = d.dayNum === 1 ? '02:00 PM' : '08:00 PM';
+            duration = 'Overnight';
+          } else if (/check-out|check out|checkout|departure transfer/i.test(low)) {
+            itemType = d.dayNum === actualDaysCount ? 'transport' : 'note';
+            time = '10:00 AM';
+            duration = '1 Hour';
+          } else if (/flight|fly to|airport drop/i.test(low)) {
+            itemType = 'transport';
+          } else if (/dinner|lunch|breakfast|meal/i.test(low)) {
+            itemType = 'activity';
+            time = /dinner/i.test(low) ? '08:00 PM' : /lunch/i.test(low) ? '01:00 PM' : '08:30 AM';
+            duration = '1.5 Hours';
           }
-        });
-        items.push({
-          type: 'transport',
-          title: 'Evening Indian Dinner Transfer & Hotel Return',
-          description: 'Private chauffeur round-trip transfer to an authentic Indian restaurant for a curated dinner.',
-          time: '07:30 PM',
-          duration: '2 Hours',
-          cost: 0
-        });
-      } else if (d.dayNum === 2) {
-        items.push({
-          type: 'activity',
-          title: 'Excursion to Shymbulak Mountain & Ski Resort (Level 3 Gondola)',
-          description: 'Ascend the scenic cableway to Shymbulak Ski Resort at 3,200m in the Trans-Ili Alatau mountains for pristine alpine views.',
-          time: '10:00 AM',
-          duration: '4 Hours',
-          cost: 0
-        });
-        items.push({
-          type: 'activity',
-          title: 'Walking Tour of Historic Panfilov & Arbat Streets',
-          description: 'Stroll along the historic pedestrian promenade with street artists, outdoor cafes, and artisanal Kazakh handicrafts.',
-          time: '03:30 PM',
-          duration: '2 Hours',
-          cost: 0
-        });
-        items.push({
-          type: 'transport',
-          title: 'Evening Indian Dinner Transfer & Hotel Return',
-          description: 'Chauffeur dinner transfer followed by restful hotel drop-off.',
-          time: '07:30 PM',
-          duration: '2 Hours',
-          cost: 0
-        });
-      } else if (d.dayNum === 3) {
-        items.push({
-          type: 'activity',
-          title: 'Almaty Guided Orientation City Tour & Panfilov Park',
-          description: 'Explore the historical heart of Almaty including the iconic memorial monument in 28 Panfilov Heroes Park.',
-          time: '10:00 AM',
-          duration: '2.5 Hours',
-          cost: 0
-        });
-        items.push({
-          type: 'activity',
-          title: 'Visit Zenkov Cathedral (Ascension Cathedral)',
-          description: 'Marvel at the world-famous wooden Russian Orthodox cathedral constructed entirely without metal nails.',
-          time: '01:00 PM',
-          duration: '1.5 Hours',
-          cost: 0
-        });
-        items.push({
-          type: 'activity',
-          title: 'Sunset Splendor at Kok Tobe Hill (Return Cable Car Included)',
-          description: 'Take the aerial tramway to Kok Tobe mountain park for panoramic sunset vistas overlooking the city skyline.',
-          time: '05:00 PM',
-          duration: '2.5 Hours',
-          cost: 0
-        });
-        items.push({
-          type: 'transport',
-          title: 'Evening Indian Dinner Transfer & Hotel Return',
-          description: 'Chauffeur dinner transfer followed by restful hotel drop-off.',
-          time: '08:00 PM',
-          duration: '1.5 Hours',
-          cost: 0
-        });
-      } else if (d.dayNum === 4) {
-        items.push({
-          type: 'activity',
-          title: 'Full-Day Scenic Expedition to Charyn Canyon ("Valley of Castles")',
-          description: 'Travel through the Kazakh steppe to explore dramatic 200m sandstone formations sculpted over 12 million years.',
-          time: '09:00 AM',
-          duration: '7 Hours',
-          cost: 0
-        });
-        items.push({
-          type: 'transport',
-          title: 'Evening Indian Dinner Transfer & Hotel Return',
-          description: 'Relaxing dinner transfer in Almaty following the full-day canyon excursion.',
-          time: '07:30 PM',
-          duration: '2 Hours',
-          cost: 0
-        });
-      } else if (d.dayNum === 5) {
-        items.push({
-          type: 'activity',
-          title: 'Sensory Tour of Green Bazaar (Zelyony Bazar)',
-          description: 'Immerse in the vibrant Silk Road market filled with local dried fruits, mountain honey, spices, and cheeses.',
-          time: '10:30 AM',
-          duration: '2.5 Hours',
-          cost: 0
-        });
-        items.push({
-          type: 'activity',
-          title: 'Rahat Chocolate Factory Tasting & Boutique Souvenir Shopping',
-          description: 'Visit the renowned Rahat confectionery store to taste artisanal chocolates and shop for authentic Kazakh gifts.',
-          time: '02:30 PM',
-          duration: '2 Hours',
-          cost: 0
-        });
-        items.push({
-          type: 'transport',
-          title: 'Evening Indian Dinner Transfer & Hotel Return',
-          description: 'Celebratory farewell dinner transfer at a premier Indian restaurant.',
-          time: '07:30 PM',
-          duration: '2 Hours',
-          cost: 0
-        });
-      } else if (d.dayNum === 6) {
-        items.push({
-          type: 'note',
-          title: 'Hotel Check-out Formalities',
-          description: 'Settle personal extras and complete standard hotel check-out procedures.',
-          time: '10:00 AM',
-          duration: '30 Mins',
-          cost: 0
-        });
-        items.push({
-          type: 'transport',
-          title: 'Private Chauffeur Transfer to Almaty International Airport (ALA)',
-          description: 'Prompt private transfer to the airport for your homeward or onward flight.',
-          time: '11:00 AM',
-          duration: '1 Hour',
-          cost: 0,
-          transportDetails: { vehicleType: detectedVehicle, serviceMode: 'Private' }
-        });
-      } else {
-        // Generic fallback for extra days
-        validTextLines.slice(0, 3).forEach((line, lineIdx) => {
+
+          // Clean item title
+          let itemTitle = point.split(/[:\-\.]/)[0].trim();
+          if (itemTitle.length > 65) {
+            itemTitle = itemTitle.slice(0, 60).replace(/\s+\S*$/, '') + '...';
+          }
+          if (itemTitle.length < 5) itemTitle = `${dayTitle} - Segment ${pIdx + 1}`;
+
           items.push({
-            type: 'activity',
-            title: line.split(/[:\-\.]/)[0].trim().slice(0, 70),
-            description: line,
-            time: lineIdx === 0 ? '10:00 AM' : lineIdx === 1 ? '02:00 PM' : '05:30 PM',
-            duration: '2 Hours',
-            cost: 0
+            type: itemType,
+            title: itemTitle,
+            description: point,
+            time,
+            duration,
+            cost: 0,
+            ...(itemType === 'hotel' ? {
+              hotelDetails: {
+                hotelName: primaryHotelName,
+                roomType: 'Deluxe Room',
+                mealPlan: detectedMealPlanCode,
+                starRating: '4 Star'
+              }
+            } : {}),
+            ...(itemType === 'transport' ? {
+              transportDetails: {
+                vehicleType: detectedVehicle,
+                serviceMode: 'Private'
+              }
+            } : {})
           });
         });
       }
 
+      // If Day 1 had no explicit items, ensure standard structured arrival
+      if (items.length === 0) {
+        if (d.dayNum === 1) {
+          items.push({
+            type: 'transport',
+            title: `Arrival Transfer to ${detectedDestination}`,
+            description: `Meet chauffeur and transfer to hotel in ${detectedDestination}.`,
+            time: '11:00 AM',
+            duration: '2 Hours',
+            cost: 0,
+            transportDetails: { vehicleType: detectedVehicle, serviceMode: 'Private' }
+          });
+          items.push({
+            type: 'hotel',
+            title: `Check-in & Overnight Stay at ${primaryHotelName}`,
+            description: `Check-in to accommodation on ${detectedRoomSharing} sharing basis. ${detectedMealPlan} plan included.`,
+            time: '02:00 PM',
+            duration: 'Overnight',
+            cost: 0,
+            hotelDetails: {
+              hotelName: primaryHotelName,
+              roomType: 'Deluxe Room',
+              mealPlan: detectedMealPlanCode,
+              starRating: '4 Star'
+            }
+          });
+          items.push({
+            type: 'activity',
+            title: `Evening Leisure in ${detectedDestination}`,
+            description: `Relax and explore nearby surroundings at your leisure.`,
+            time: '06:30 PM',
+            duration: '2 Hours',
+            cost: 0
+          });
+        } else if (d.dayNum === actualDaysCount) {
+          items.push({
+            type: 'note',
+            title: 'Hotel Check-out Formalities',
+            description: 'Check out from hotel after breakfast and settle any personal incidentals.',
+            time: '10:00 AM',
+            duration: '30 Mins',
+            cost: 0
+          });
+          items.push({
+            type: 'transport',
+            title: `Departure Transfer from ${detectedDestination}`,
+            description: `Private chauffeur transfer for your onward journey or flight back home.`,
+            time: '11:00 AM',
+            duration: '2 Hours',
+            cost: 0,
+            transportDetails: { vehicleType: detectedVehicle, serviceMode: 'Private' }
+          });
+        } else {
+          items.push({
+            type: 'activity',
+            title: dayTitle,
+            description: combinedNarrative || `Curated sightseeing and excursions in ${detectedDestination}.`,
+            time: '10:00 AM',
+            duration: '4 Hours',
+            cost: 0
+          });
+        }
+      }
+
       daysPlan.push({
         day: d.dayNum,
-        title: dayTheme,
-        notes: `Curated private chauffeur schedule for ${dayTheme}.`,
+        title: dayTitle,
+        notes: `Curated itinerary schedule for ${dayTitle}.`,
         items
       });
     });
-  } else {
-    // Fallback if no Day markers found
-    for (let d = 1; d <= daysCount; d++) {
-      daysPlan.push({
-        day: d,
-        title: `Day ${d}: Tour Program`,
-        items: [
-          {
-            type: d === 1 ? 'transport' : 'activity',
-            title: d === 1 ? 'Arrival & Hotel Transfer' : `Day ${d} Sightseeing`,
-            description: `Scheduled sightseeing as detailed in the proposal.`,
-            time: '10:00 AM',
-            duration: '2 Hours',
-            cost: 0
-          }
-        ]
-      });
-    }
   }
 
-  // 11. Inclusions / Exclusions
+  // 10. Dynamic Inclusions & Exclusions from Document
   const included: string[] = [];
   const notIncluded: string[] = [];
 
-  const incMatch = cleanRaw.match(/(?:Inclusions?|Package Includes?|Cost Includes?|ABOVE PRICE INCLUDES)[\s\S]*?(?:Exclusions?|Package Excludes?|Cost Excludes?|Terms)/i);
+  const incMatch = cleanRaw.match(/(?:Inclusions?|Package Includes?|Cost Includes?|Price Includes?|Above Price Includes?)[\s\S]*?(?=(?:Exclusions?|Package Excludes?|Cost Excludes?|Terms|Cancellation|Note|Payment|PRICE|TOTAL|$))/i);
   if (incMatch) {
     incMatch[0].split('\n').slice(1).forEach(l => {
-      const clean = l.replace(/^[•\-\*\d\.\)]+\s*/, '').trim();
-      if (clean.length > 5 && clean.length < 120 && included.length < 10) included.push(clean);
+      const clean = l.replace(/^[•\-\*d\.\)]+\s*/, '').trim();
+      if (clean.length > 5 && clean.length < 140 && included.length < 12 && !/^(?:exclusions|package excludes|terms)/i.test(clean)) {
+        included.push(clean);
+      }
     });
   }
 
-  const excMatch = cleanRaw.match(/(?:Exclusions?|Package Excludes?|Cost Excludes?)[\s\S]*?(?:Terms|Cancellation|Note|Payment|IMPORTANT NOTES|$)/i);
+  const excMatch = cleanRaw.match(/(?:Exclusions?|Package Excludes?|Cost Excludes?|Price Excludes?)[\s\S]*?(?=(?:Terms|Cancellation|Note|Payment|Important Notes|TOTAL|PACKAGE COST|RATE|PRICE|$))/i);
   if (excMatch) {
     excMatch[0].split('\n').slice(1).forEach(l => {
-      const clean = l.replace(/^[•\-\*\d\.\)]+\s*/, '').trim();
-      if (clean.length > 5 && clean.length < 120 && notIncluded.length < 10) notIncluded.push(clean);
+      const clean = l.replace(/^[•\-\*d\.\)]+\s*/, '').trim();
+      if (clean.length > 5 && clean.length < 140 && notIncluded.length < 12 && !/^(?:terms|cancellation|note|payment)/i.test(clean)) {
+        notIncluded.push(clean);
+      }
     });
   }
 
+  // Default clean inclusions if document had none
   if (included.length === 0) {
     included.push(
       `0${nightsCount} Nights accommodation at ${primaryHotelName} (or similar)`,
       `Daily meal plan: ${detectedMealPlan}`,
       `All transfers & sightseeing by ${detectedVehicle}`,
-      'Return gondola tickets for Shymbulak Mountain & Kok Tobe',
-      'Services of an English-speaking Chauffeur-Guide throughout the tour',
-      'Daily 2 x 500ml packaged drinking water bottles per person'
+      'All toll taxes, parking fees, fuel charges, and driver allowances'
     );
   }
 
   if (notIncluded.length === 0) {
     notIncluded.push(
-      'International or domestic airfare',
+      'Airfare or train tickets',
       'Personal expenses such as laundry, telephone calls, tips & portage',
-      'Lunches and beverages unless explicitly specified',
-      'Any optional activities, night club entry, or personal excursions'
+      'Monument entrance passes, camera fees, or optional adventure activities',
+      'Any meals or services not explicitly mentioned in inclusions'
     );
   }
+
+  const termsAndConditions = `Standard supplier terms and conditions apply. Rates are subject to availability at the time of booking.`;
 
   return {
     title: detectedTitle,
@@ -944,12 +1076,13 @@ export function parseDmcItineraryFallback(rawText: string, fileName?: string): P
     nights: nightsCount,
     startDate: detectedStartDate,
     roomSharing: detectedRoomSharing,
+    roomsCount: detectedRoomsCount,
     mealPlanCode: detectedMealPlanCode,
     hotelsList,
     destinationsList: [{ name: detectedDestination, nights: nightsCount }],
     included,
     notIncluded,
-    termsAndConditions: 'Standard supplier terms and conditions apply. Kazakhstan offers visa-free entry for Indian passport holders for up to 14 days.',
+    termsAndConditions,
     pricing: (totalCost > 0 || costPerPerson > 0) ? {
       totalPackageCost: totalCost,
       costPerPerson: costPerPerson,
@@ -1034,6 +1167,9 @@ export async function parseDmcItinerary(
         destination: parsedJson.destination || 'Custom Tour',
         days: Number(parsedJson.days) || parsedJson.daysPlan.length,
         nights: Number(parsedJson.nights) || Math.max(1, (Number(parsedJson.days) || parsedJson.daysPlan.length) - 1),
+        roomSharing: parsedJson.roomSharing || 'Double',
+        mealPlanCode: parsedJson.mealPlanCode || 'MAP',
+        roomsCount: parsedJson.roomsCount || (parsedJson.paxDetails?.adults ? Math.max(1, Math.ceil(parsedJson.paxDetails.adults / (parsedJson.roomSharing === 'Triple' ? 3 : parsedJson.roomSharing === 'Quad' ? 4 : parsedJson.roomSharing === 'Single' ? 1 : 2))) : 1),
         destinationsList: Array.isArray(parsedJson.destinationsList) ? parsedJson.destinationsList : undefined,
         included: Array.isArray(parsedJson.included) ? parsedJson.included : [],
         notIncluded: Array.isArray(parsedJson.notIncluded) ? parsedJson.notIncluded : [],

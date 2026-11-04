@@ -136,8 +136,8 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
             const firstKey = sortedKeys[0];
             const lastKey = sortedKeys[sortedKeys.length - 1];
 
-            const [firstYr, firstMo] = firstKey.split('-').map(Number);
-            const [lastYr, lastMo] = lastKey.split('-').map(Number);
+            const [firstYr, firstMo] = String(firstKey || '').split('-').map(Number);
+            const [lastYr, lastMo] = String(lastKey || '').split('-').map(Number);
 
             const startD = new Date(firstYr, firstMo - 1, 1);
             const endD = new Date(lastYr, lastMo, 0); // last day of that month

@@ -54,6 +54,27 @@ const getActiveFreeOpenRouterModels = async (): Promise<string[]> => {
     ];
 };
 
+const safeParseSetting = (val: any): any => {
+    if (val === undefined || val === null) return '';
+    if (typeof val === 'boolean' || typeof val === 'number') return val;
+    if (typeof val !== 'string') return val;
+    const trimmed = val.trim();
+    if (trimmed === 'true') return true;
+    if (trimmed === 'false') return false;
+    if (
+        (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    ) {
+        try {
+            return JSON.parse(trimmed);
+        } catch {
+            return trimmed;
+        }
+    }
+    return trimmed;
+};
+
 // Helper to fetch OpenRouter settings from DB
 const getOpenRouterConfig = async () => {
     try {
@@ -67,11 +88,11 @@ const getOpenRouterConfig = async () => {
         if (data && Array.isArray(data)) {
             data.forEach((item: any) => {
                 if (item.key === 'integrations.openrouter.enabled') {
-                    try { config.enabled = JSON.parse(item.value); } catch {}
+                    config.enabled = Boolean(safeParseSetting(item.value));
                 } else if (item.key === 'integrations.openrouter.apiKey') {
-                    try { config.apiKey = JSON.parse(item.value); } catch {}
+                    config.apiKey = String(safeParseSetting(item.value) || '').trim();
                 } else if (item.key === 'integrations.openrouter.defaultModel') {
-                    try { config.defaultModel = JSON.parse(item.value); } catch {}
+                    config.defaultModel = String(safeParseSetting(item.value) || '').trim() || 'openrouter/free';
                 }
             });
         }

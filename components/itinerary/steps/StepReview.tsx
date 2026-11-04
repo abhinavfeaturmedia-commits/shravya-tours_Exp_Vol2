@@ -288,13 +288,18 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
                                     )}
                                 </span>
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 text-[11px] font-bold">
-                                    🍽️ Meal Plan: {getMealPlanLabel(tripDetails.mealPlanId || tripDetails.mealPlanCode)}
+                                    🍽️ Meal Plan: {getMealPlanLabel(tripDetails.mealPlanCode || tripDetails.mealPlanId)}
                                 </span>
-                                {tripDetails.roomsCount && tripDetails.roomsCount > 0 && (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-900 text-[11px] font-bold">
-                                        🛏️ {tripDetails.roomsCount} {tripDetails.roomsCount === 1 ? 'Room' : 'Rooms'}
-                                    </span>
-                                )}
+                                {(() => {
+                                    const effectiveRooms = tripDetails.roomsCount && tripDetails.roomsCount > 0
+                                        ? tripDetails.roomsCount
+                                        : Math.max(1, Math.ceil((tripDetails.adults || 2) / (tripDetails.roomSharing === 'Triple' ? 3 : tripDetails.roomSharing === 'Quad' ? 4 : tripDetails.roomSharing === 'Single' ? 1 : 2)));
+                                    return (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-900 text-[11px] font-bold">
+                                            🛏️ {effectiveRooms} {effectiveRooms === 1 ? 'Room' : 'Rooms'}
+                                        </span>
+                                    );
+                                })()}
                             </div>
                             {validUntilDate && (
                                 <p className="text-[10px] font-bold text-amber-600 mt-1.5 flex items-center gap-1">

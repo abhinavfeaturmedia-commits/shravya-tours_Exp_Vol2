@@ -798,7 +798,9 @@ export async function runStartupMigrations(pool) {
             }
             try { await pool.query("ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_sac VARCHAR(20) DEFAULT '996601'"); } catch(e) { /* ignore */ }
             try { await pool.query("ALTER TABLE invoice_items ALTER COLUMN hsn_sac SET DEFAULT '996601'"); } catch(e) { /* ignore */ }
-            console.log('[Migration] Invoicing GST schema & sequences verified');
+            try { await pool.query("ALTER TABLE invoices ADD UNIQUE KEY uq_invoice_no (invoice_no)"); } catch(e) { /* ignore if exists */ }
+            try { await pool.query("ALTER TABLE invoices ADD UNIQUE KEY uq_fy_doc_seq (document_type, financial_year, sequence_number)"); } catch(e) { /* ignore if exists */ }
+            console.log('[Migration] Invoicing GST schema, sequences & unique constraints verified');
         } catch (errInvoices) {
             console.warn('[Migration Invoicing Notice]', errInvoices.message);
         }

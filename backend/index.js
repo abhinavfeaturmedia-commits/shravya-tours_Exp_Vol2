@@ -930,6 +930,28 @@ async function ensureChatbotTables() {
 }
 ensureChatbotTables();
 
+// Helper to safely parse setting values
+function safeParseSetting(val) {
+    if (val === undefined || val === null) return '';
+    if (typeof val === 'boolean' || typeof val === 'number') return val;
+    if (typeof val !== 'string') return val;
+    const trimmed = val.trim();
+    if (trimmed === 'true') return true;
+    if (trimmed === 'false') return false;
+    if (
+        (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    ) {
+        try {
+            return JSON.parse(trimmed);
+        } catch {
+            return trimmed;
+        }
+    }
+    return trimmed;
+}
+
 // AI Chatbot Helpers for OpenRouter
 async function getOpenRouterConfig() {
     try {
@@ -937,21 +959,21 @@ async function getOpenRouterConfig() {
         const config = {
             enabled: false,
             apiKey: '',
-            defaultModel: 'meta-llama/llama-3.3-70b-instruct:free'
+            defaultModel: 'openrouter/free'
         };
         rows.forEach(row => {
             if (row.setting_key === 'integrations.openrouter.enabled') {
-                try { config.enabled = JSON.parse(row.setting_value); } catch {}
+                config.enabled = Boolean(safeParseSetting(row.setting_value));
             } else if (row.setting_key === 'integrations.openrouter.apiKey') {
-                try { config.apiKey = JSON.parse(row.setting_value); } catch {}
+                config.apiKey = String(safeParseSetting(row.setting_value) || '').trim();
             } else if (row.setting_key === 'integrations.openrouter.defaultModel') {
-                try { config.defaultModel = JSON.parse(row.setting_value); } catch {}
+                config.defaultModel = String(safeParseSetting(row.setting_value) || '').trim() || 'openrouter/free';
             }
         });
         return config;
     } catch (e) {
         console.warn("[OpenRouter Config] Failed to load from DB:", e.message);
-        return { enabled: false, apiKey: '', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free' };
+        return { enabled: false, apiKey: '', defaultModel: 'openrouter/free' };
     }
 }
 
@@ -6945,6 +6967,16 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
         let finalInvoiceNo = existing.length > 0 ? existing[0].invoice_no : null;
         let finalSeq = existing.length > 0 ? existing[0].sequence_number : null;
 
+        // Collision safety check: If an existing invoice_no is present, verify it is not shared with any other record
+        if (finalInvoiceNo) {
+            const [collision] = await conn.query('SELECT id FROM invoices WHERE invoice_no = ? AND id != ?', [finalInvoiceNo, invoiceId]);
+            if (collision.length > 0) {
+                console.warn(`[Invoice Issue] Duplicate invoice_no ${finalInvoiceNo} on invoice ${invoiceId} collides with ${collision[0].id}. Re-allocating fresh sequence.`);
+                finalInvoiceNo = null;
+                finalSeq = null;
+            }
+        }
+
         if (!finalInvoiceNo) {
             // Lock and retrieve next sequence atomically for this document type and FY
             const [seqRows] = await conn.query(
@@ -6952,9 +6984,24 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
                 [docType, fy]
             );
 
-            let nextSeq = 1;
+            let nextSeq = seqRows.length > 0 ? Number(seqRows[0].current_number || 0) : 0;
+            let candidateNo = '';
+            let isUnique = false;
+
+            // Loop to guarantee absolute collision-free sequence even if historical records exist
+            while (!isUnique) {
+                nextSeq += 1;
+                candidateNo = formatGstInvoiceNumber(prefix, fy, nextSeq);
+                const [collisionCheck] = await conn.query(
+                    'SELECT id FROM invoices WHERE invoice_no = ? AND id != ?',
+                    [candidateNo, invoiceId]
+                );
+                if (collisionCheck.length === 0) {
+                    isUnique = true;
+                }
+            }
+
             if (seqRows.length > 0) {
-                nextSeq = Number(seqRows[0].current_number || 0) + 1;
                 await conn.query(
                     'UPDATE document_sequences SET current_number = ?, prefix = ? WHERE doc_type = ? AND financial_year = ?',
                     [nextSeq, prefix, docType, fy]
@@ -6968,7 +7015,7 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
             }
 
             finalSeq = nextSeq;
-            finalInvoiceNo = formatGstInvoiceNumber(prefix, fy, nextSeq);
+            finalInvoiceNo = candidateNo;
         }
 
         // Prepare full invoice payload
@@ -7113,15 +7160,29 @@ app.post('/api/invoices/credit-note', authMiddleware, async (req, res) => {
             }
         }
 
-        // Allocate next Credit Note sequence
+        // Allocate next Credit Note sequence with collision check
         const [seqRows] = await conn.query(
             'SELECT current_number FROM document_sequences WHERE doc_type = ? AND financial_year = ? FOR UPDATE',
             ['CreditNote', fy]
         );
 
-        let nextSeq = 1;
+        let nextSeq = seqRows.length > 0 ? Number(seqRows[0].current_number || 0) : 0;
+        let candidateNo = '';
+        let isUnique = false;
+
+        while (!isUnique) {
+            nextSeq += 1;
+            candidateNo = formatGstInvoiceNumber(prefix, fy, nextSeq);
+            const [collisionCheck] = await conn.query(
+                'SELECT id FROM invoices WHERE invoice_no = ? AND id != ?',
+                [candidateNo, creditNoteId]
+            );
+            if (collisionCheck.length === 0) {
+                isUnique = true;
+            }
+        }
+
         if (seqRows.length > 0) {
-            nextSeq = Number(seqRows[0].current_number || 0) + 1;
             await conn.query(
                 'UPDATE document_sequences SET current_number = ?, prefix = ? WHERE doc_type = ? AND financial_year = ?',
                 [nextSeq, prefix, 'CreditNote', fy]
@@ -7133,7 +7194,7 @@ app.post('/api/invoices/credit-note', authMiddleware, async (req, res) => {
             );
         }
 
-        const creditNoteNo = formatGstInvoiceNumber(prefix, fy, nextSeq);
+        const creditNoteNo = candidateNo;
 
         const payload = {
             id: creditNoteId,
@@ -8177,6 +8238,25 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
             body.id = crypto.randomUUID();
         }
 
+        // Invoices Guard: Generic CRUD creation of an invoice must NEVER set official sequential numbers
+        // Only /api/invoices/issue or /api/invoices/credit-note are authorized to allocate official sequences
+        if (table === 'invoices') {
+            if (body.status === 'Draft' || !body.status) {
+                body.invoice_no = null;
+                body.sequence_number = null;
+                body.is_locked = 0;
+            } else if (body.invoice_no) {
+                const [dup] = await pool.query('SELECT id FROM invoices WHERE invoice_no = ?', [body.invoice_no]);
+                if (dup.length > 0) {
+                    console.warn(`[Invoice Guard] Blocked attempt to insert duplicate invoice_no: ${body.invoice_no} (already used by ${dup[0].id})`);
+                    body.invoice_no = null;
+                    body.sequence_number = null;
+                    body.status = 'Draft';
+                }
+            }
+            delete body.created_at;
+        }
+
         // Default auto-assignment: If a staff (non-admin) creates a record in assigned data tables without an explicit assignee, assign it to them
         const assignedDataTables = ['leads', 'bookings', 'follow_ups', 'tasks'];
         const { isAdmin, queryScope, permissions, department, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(req.user);
@@ -8585,6 +8665,17 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
     let body = sanitizeDbBody(req.body);
     body = await filterDbBodyByTable(table, body);
     try {
+        // Invoices Guard: Prevent setting or changing to a duplicate invoice_no via generic CRUD
+        if (table === 'invoices') {
+            if (body.invoice_no) {
+                const [dup] = await pool.query('SELECT id FROM invoices WHERE invoice_no = ? AND id != ?', [body.invoice_no, id]);
+                if (dup.length > 0) {
+                    return res.status(409).json({ error: `Invoice number ${body.invoice_no} is already assigned to document ${dup[0].id}` });
+                }
+            }
+            delete body.created_at;
+        }
+
         // Lead, Booking & Proposal Playbook / Email Triggers on Update (fetch old record before update)
         let oldLead = null;
         let oldBooking = null;
