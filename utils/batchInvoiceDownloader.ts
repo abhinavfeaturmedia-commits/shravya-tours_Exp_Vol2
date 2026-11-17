@@ -77,11 +77,22 @@ export async function downloadInvoicesAsZip({
                     let fullInv = inv;
                     let cfMapped: any[] = [];
 
-                    // If invoice items are already loaded (e.g. from /api/invoices/export-query?include_items=true)
-                    const hasPreloadedItems = Array.isArray(items);
+                    // Check if items and custom fields are preloaded from batch export query
+                    const hasPreloadedItems = Array.isArray(items) && items.length > 0;
+                    const hasPreloadedCustomFields = Array.isArray(inv.custom_fields);
 
-                    if (hasPreloadedItems) {
-                        // Items already present! Only fetch custom fields if missing
+                    if (hasPreloadedCustomFields) {
+                        cfMapped = inv.custom_fields.map((cf: any) => ({
+                            label: cf.label || '',
+                            amount: Number(cf.amount || 0),
+                            is_deduction: Boolean(cf.is_deduction)
+                        }));
+                    }
+
+                    if (hasPreloadedItems && hasPreloadedCustomFields) {
+                        // 100% full fidelity preloaded data available!
+                    } else if (hasPreloadedItems && !hasPreloadedCustomFields) {
+                        // Items preloaded, only fetch custom fields
                         try {
                             const r3 = await fetch(`/api/crud/invoice_custom_fields?eq_invoice_id=${inv.id}`, { headers });
                             if (r3.ok) {
@@ -125,15 +136,27 @@ export async function downloadInvoicesAsZip({
                         } catch {}
                     }
 
-                    // Compute monthly subfolder if requested
+                    // Compute monthly subfolder if requested without timezone shift
                     let monthFolderName = '';
                     if (groupByMonth) {
-                        const dateVal = fullInv.issue_date || fullInv.created_at || new Date().toISOString();
-                        const d = new Date(dateVal);
-                        const yr = d.getFullYear();
-                        const mo = String(d.getMonth() + 1).padStart(2, '0');
-                        const monthName = d.toLocaleString('en-IN', { month: 'long' });
-                        monthFolderName = `${yr}-${mo}_${monthName}`;
+                        const dateVal = String(fullInv.issue_date || fullInv.created_at || '').trim();
+                        const match = dateVal.match(/^(\d{4})-(\d{2})/);
+                        const monthNames = [
+                            'January', 'February', 'March', 'April', 'May', 'June',
+                            'July', 'August', 'September', 'October', 'November', 'December'
+                        ];
+                        if (match) {
+                            const yr = match[1];
+                            const moNum = parseInt(match[2], 10);
+                            const monthName = monthNames[moNum - 1] || 'Month';
+                            monthFolderName = `${yr}-${match[2]}_${monthName}`;
+                        } else {
+                            const d = new Date(dateVal || Date.now());
+                            const yr = d.getFullYear();
+                            const mo = String(d.getMonth() + 1).padStart(2, '0');
+                            const monthName = d.toLocaleString('en-IN', { month: 'long' });
+                            monthFolderName = `${yr}-${mo}_${monthName}`;
+                        }
                     }
 
                     // 2. Generate PDF blobs according to chosen copy type

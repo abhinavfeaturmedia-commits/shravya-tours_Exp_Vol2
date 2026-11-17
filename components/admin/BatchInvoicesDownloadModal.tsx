@@ -347,11 +347,18 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
             const data = await response.json();
             let invoicesToProcess: any[] = data.invoices || [];
 
-            // If in multi-month mode, filter precisely by selectedMonthKeys
+            // If in multi-month mode, filter precisely by selectedMonthKeys without timezone distortion
             if (tabMode === 'months' && selectedMonthKeys.size > 0 && selectedMonthKeys.size < 12) {
                 invoicesToProcess = invoicesToProcess.filter(inv => {
-                    const d = new Date(inv.issue_date || inv.created_at);
-                    const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    const dateVal = String(inv.issue_date || inv.created_at || '').trim();
+                    const match = dateVal.match(/^(\d{4})-(\d{2})/);
+                    let k = '';
+                    if (match) {
+                        k = `${match[1]}-${match[2]}`;
+                    } else {
+                        const d = new Date(dateVal);
+                        k = !isNaN(d.getTime()) ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : '';
+                    }
                     return selectedMonthKeys.has(k);
                 });
             }

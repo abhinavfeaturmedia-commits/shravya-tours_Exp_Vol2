@@ -622,6 +622,22 @@ const formatRate = (rate: number): string => {
 };
 
 // Formats monetary amounts: shows whole rupees cleanly (e.g. 3,750), or exactly 2 decimal places if paise exist (e.g. 3,750.50)
+// Formats location-agnostic calendar dates (YYYY-MM-DD) safely without timezone drift
+const formatPdfCalendarDate = (val: string | Date | null | undefined): string => {
+    if (!val) return '';
+    if (typeof val === 'string') {
+        const match = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+            const yr = parseInt(match[1], 10);
+            const mo = parseInt(match[2], 10) - 1;
+            const da = parseInt(match[3], 10);
+            return new Date(yr, mo, da).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+        }
+    }
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? String(val) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
 const formatAmount = (val: number): string => {
     const num = Number(val) || 0;
     return num % 1 === 0
@@ -790,7 +806,7 @@ export const generateTrueInvoicePDF = async (
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7);
     doc.setTextColor(9, 28, 59);
-    doc.text(new Date(docData.issue_date || new Date()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 192, metaY, { align: 'right' });
+    doc.text(formatPdfCalendarDate(docData.issue_date || new Date()), 192, metaY, { align: 'right' });
     metaY += 4.5;
 
     // Row 3: PLACE OF SUPPLY (Rule 46(d))
@@ -825,7 +841,7 @@ export const generateTrueInvoicePDF = async (
         doc.setFont("helvetica", "bold");
         doc.setFontSize(7);
         doc.setTextColor(220, 38, 38);
-        doc.text(new Date(docData.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }), 192, metaY, { align: 'right' });
+        doc.text(formatPdfCalendarDate(docData.due_date), 192, metaY, { align: 'right' });
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -960,11 +976,11 @@ export const generateTrueInvoicePDF = async (
         let travelLabel = '';
         if (hasValidTravelDate) {
             const rawFrom = String(docData.travel_date_from).split('T')[0];
-            const fromDate = new Date(rawFrom + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            const fromDate = formatPdfCalendarDate(rawFrom);
             const hasValidTravelTo = docData.travel_date_to && !String(docData.travel_date_to).startsWith('1899') && !String(docData.travel_date_to).startsWith('0000');
             if (hasValidTravelTo) {
                 const rawTo = String(docData.travel_date_to).split('T')[0];
-                const toDate = new Date(rawTo + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                const toDate = formatPdfCalendarDate(rawTo);
                 const diffMs = new Date(rawTo + 'T00:00:00').getTime() - new Date(rawFrom + 'T00:00:00').getTime();
                 const nights = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
                 const daysLabel = ` (${formatTripDuration({ nights, days: nights + 1 })})`;
@@ -987,8 +1003,51 @@ export const generateTrueInvoicePDF = async (
     let tableColStyles: Record<number, any> = {};
     let bodyData: any[] = [];
 
-    const totalQtyDays = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) || 0), 0);
-    const subtotalAmount = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0)), 0);
+    // Helper to resolve accurate metrics for an item with robust fallback inference
+    const resolveItemMetrics = (item: any) => {
+        const qty = Number(item.quantity) || 1;
+        let daysKmStr = item.total_days_km ? String(item.total_days_km).trim() : '';
+        let daysKm = parseDaysKm(daysKmStr);
+        const rate = Number(item.unit_price) || 0;
+        const taxRate = Number(item.tax_rate) || 0;
+
+        // Resilient inference: If daysKmStr is missing/defaulted to 1, but stored item.total or item.tax_amount
+        // indicates multi-day/km fare (e.g. total = 26,775 while rate = 17)
+        if ((!daysKmStr || daysKm === 1) && Number(item.total) > 0 && rate > 0) {
+            const storedTax = Number(item.tax_amount) || 0;
+            const storedTotal = Number(item.total) || 0;
+            const baseVal = storedTax > 0 ? (storedTotal - storedTax) : (taxRate > 0 ? (storedTotal / (1 + taxRate / 100)) : storedTotal);
+            const inferred = Math.round(baseVal / rate);
+            if (inferred > 1) {
+                daysKm = inferred;
+                const isKm = /km/i.test(item.description || '') || /km/i.test(daysKmStr);
+                daysKmStr = `${daysKm}${isKm ? ' Km' : ''}`;
+            }
+        }
+
+        const baseAmount = daysKm * rate;
+        const taxAmount = Number(item.tax_amount) > 0 ? Number(item.tax_amount) : baseAmount * (taxRate / 100);
+        const total = Number(item.total) > 0 ? Number(item.total) : baseAmount + taxAmount;
+
+        return {
+            qty,
+            daysKmStr: daysKmStr || '1',
+            daysKm,
+            rate,
+            taxRate,
+            baseAmount,
+            taxAmount,
+            total
+        };
+    };
+
+    const totalQtyDays = items.reduce((acc, item) => acc + resolveItemMetrics(item).daysKm, 0);
+    const calculatedSubtotal = items.reduce((acc, item) => acc + resolveItemMetrics(item).baseAmount, 0);
+    const calculatedTaxTotal = items.reduce((acc, item) => acc + resolveItemMetrics(item).taxAmount, 0);
+
+    const subtotalAmount = Number(docData.subtotal) > 0 ? Number(docData.subtotal) : calculatedSubtotal;
+    const totalTaxAmt = Number(docData.tax_total) > 0 ? Number(docData.tax_total) : calculatedTaxTotal;
+    const totalFullAmt = subtotalAmount + totalTaxAmt;
 
     if (docData.is_gst === 1) {
         const isIGST = docData.gst_type === 'IGST';
@@ -1007,29 +1066,20 @@ export const generateTrueInvoicePDF = async (
             };
 
             bodyData = items.map((item, idx) => {
-                const qty = Number(item.quantity) || 1;
-                const daysKmStr = item.total_days_km ? String(item.total_days_km) : '1';
-                const daysKm = parseDaysKm(daysKmStr);
-                const rate = Number(item.unit_price) || 0;
-                const baseAmount = daysKm * rate;
-                const taxRate = Number(item.tax_rate) || 0;
-                const taxAmount = baseAmount * (taxRate / 100);
-                const total = baseAmount + taxAmount;
+                const m = resolveItemMetrics(item);
                 return [
                     (idx + 1).toString(),
                     item.description ? cleanText(item.description) : 'Tour Service Operator',
                     item.hsn_sac || finance?.defaultSacCode || '996601',
-                    qty.toString(),
-                    daysKmStr.toString(),
-                    `Rs. ${formatRate(rate)}`,
-                    `Rs. ${formatAmount(baseAmount)}`,
-                    `${taxRate}%\nRs. ${formatAmount(taxAmount)}`,
-                    `Rs. ${formatAmount(total)}`
+                    m.qty.toString(),
+                    m.daysKmStr,
+                    `Rs. ${formatRate(m.rate)}`,
+                    `Rs. ${formatAmount(m.baseAmount)}`,
+                    `${m.taxRate}%\nRs. ${formatAmount(m.taxAmount)}`,
+                    `Rs. ${formatAmount(m.total)}`
                 ];
             });
 
-            const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
-            const totalFullAmt = subtotalAmount + totalTaxAmt;
             bodyData.push(['', 'TOTAL', '', '', '', '', `Rs. ${formatAmount(subtotalAmount)}`, `Rs. ${formatAmount(totalTaxAmt)}`, `Rs. ${formatAmount(totalFullAmt)}`]);
         } else {
             tableHeaders = [['#', 'DESCRIPTION', 'HSN/SAC', 'QTY', 'DAYS / KM', 'RATE', 'TAXABLE VAL', 'CGST', 'SGST', 'TOTAL']];
@@ -1047,30 +1097,21 @@ export const generateTrueInvoicePDF = async (
             };
 
             bodyData = items.map((item, idx) => {
-                const qty = Number(item.quantity) || 1;
-                const daysKmStr = item.total_days_km ? String(item.total_days_km) : '1';
-                const daysKm = parseDaysKm(daysKmStr);
-                const rate = Number(item.unit_price) || 0;
-                const baseAmount = daysKm * rate;
-                const taxRate = Number(item.tax_rate) || 0;
-                const taxAmount = baseAmount * (taxRate / 100);
-                const total = baseAmount + taxAmount;
+                const m = resolveItemMetrics(item);
                 return [
                     (idx + 1).toString(),
                     item.description ? cleanText(item.description) : 'Tour Service Operator',
                     item.hsn_sac || finance?.defaultSacCode || '996601',
-                    qty.toString(),
-                    daysKmStr.toString(),
-                    `Rs. ${formatRate(rate)}`,
-                    `Rs. ${formatAmount(baseAmount)}`,
-                    `${(taxRate / 2)}%\nRs. ${formatAmount(taxAmount / 2)}`,
-                    `${(taxRate / 2)}%\nRs. ${formatAmount(taxAmount / 2)}`,
-                    `Rs. ${formatAmount(total)}`
+                    m.qty.toString(),
+                    m.daysKmStr,
+                    `Rs. ${formatRate(m.rate)}`,
+                    `Rs. ${formatAmount(m.baseAmount)}`,
+                    `${(m.taxRate / 2)}%\nRs. ${formatAmount(m.taxAmount / 2)}`,
+                    `${(m.taxRate / 2)}%\nRs. ${formatAmount(m.taxAmount / 2)}`,
+                    `Rs. ${formatAmount(m.total)}`
                 ];
             });
 
-            const totalTaxAmt = items.reduce((acc, item) => acc + (parseDaysKm(item.total_days_km) * Number(item.unit_price || 0) * (Number(item.tax_rate || 0) / 100)), 0);
-            const totalFullAmt = subtotalAmount + totalTaxAmt;
             bodyData.push(['', 'TOTAL', '', '', '', '', `Rs. ${formatAmount(subtotalAmount)}`, `Rs. ${formatAmount(totalTaxAmt / 2)}`, `Rs. ${formatAmount(totalTaxAmt / 2)}`, `Rs. ${formatAmount(totalFullAmt)}`]);
         }
     } else {
@@ -1085,18 +1126,14 @@ export const generateTrueInvoicePDF = async (
         };
 
         bodyData = items.map((item, idx) => {
-            const qty = Number(item.quantity) || 1;
-            const daysKmStr = item.total_days_km ? String(item.total_days_km) : '1';
-            const daysKmVal = parseDaysKm(daysKmStr);
-            const rate = Number(item.unit_price) || 0;
-            const total = daysKmVal * rate;
+            const m = resolveItemMetrics(item);
             return [
                 (idx + 1).toString(),
                 item.description ? cleanText(item.description) : 'Tour Service Operator',
-                qty.toString(),
-                daysKmStr.toString(),
-                `Rs. ${formatRate(rate)}`,
-                `Rs. ${formatAmount(total)}`
+                m.qty.toString(),
+                m.daysKmStr,
+                `Rs. ${formatRate(m.rate)}`,
+                `Rs. ${formatAmount(m.total)}`
             ];
         });
 

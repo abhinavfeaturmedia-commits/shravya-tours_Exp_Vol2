@@ -6932,6 +6932,14 @@ app.get('/api/invoices/next-preview', authMiddleware, async (req, res) => {
         const nextSeq = currentSeq + 1;
         const nextNumber = formatGstInvoiceNumber(prefix, fy, nextSeq);
 
+        // Fetch latest active invoice in this FY to guide chronological constraints
+        const [latest] = await pool.query(
+            'SELECT invoice_no, sequence_number, issue_date FROM invoices WHERE document_type = ? AND financial_year = ? AND sequence_number IS NOT NULL AND status != "Void" ORDER BY sequence_number DESC LIMIT 1',
+            [docType, fy]
+        );
+        const latestIssueDate = (latest.length > 0 && latest[0].issue_date) ? String(latest[0].issue_date).split('T')[0] : null;
+        const latestInvoiceNo = (latest.length > 0) ? latest[0].invoice_no : null;
+
         res.json({
             success: true,
             docType,
@@ -6939,7 +6947,9 @@ app.get('/api/invoices/next-preview', authMiddleware, async (req, res) => {
             prefix,
             currentSequence: currentSeq,
             nextSequence: nextSeq,
-            nextNumber
+            nextNumber,
+            latestIssueDate,
+            latestInvoiceNo
         });
     } catch (err) {
         console.error('[Invoice Next Preview Error]', err);
@@ -6978,6 +6988,39 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
         }
 
         if (!finalInvoiceNo) {
+            // Guard 1: Duplicate Booking Check — A single booking can only have one active official tax invoice
+            if (body.booking_id) {
+                const [dupBookings] = await conn.query(
+                    'SELECT id, invoice_no, sequence_number, status, total_amount FROM invoices WHERE booking_id = ? AND id != ? AND invoice_no IS NOT NULL AND status != "Void"',
+                    [body.booking_id, invoiceId]
+                );
+                if (dupBookings.length > 0) {
+                    await conn.rollback();
+                    return res.status(409).json({
+                        error: `Duplicate Booking Billing Blocked: This booking is already billed under active Tax Invoice #${dupBookings[0].invoice_no}. You cannot issue multiple active tax invoices for the same booking.`,
+                        existingInvoice: dupBookings[0]
+                    });
+                }
+            }
+
+            // Guard 2: Chronological Sequence Check (GST Rule 46) — An invoice sequence cannot be dated earlier than the latest issued invoice in that series
+            const [latestInvoice] = await conn.query(
+                'SELECT invoice_no, sequence_number, issue_date FROM invoices WHERE document_type = ? AND financial_year = ? AND sequence_number IS NOT NULL AND status != "Void" ORDER BY sequence_number DESC LIMIT 1',
+                [docType, fy]
+            );
+            if (latestInvoice.length > 0 && latestInvoice[0].issue_date) {
+                const latestDateStr = String(latestInvoice[0].issue_date).split('T')[0];
+                const newIssueDateStr = String(issueDate).split('T')[0];
+                if (newIssueDateStr < latestDateStr) {
+                    await conn.rollback();
+                    return res.status(422).json({
+                        error: `Chronological Sequence Violation: The latest issued invoice (${latestInvoice[0].invoice_no}) is dated ${latestDateStr}. Official GST rules require consecutive invoice dates to move forward in time. You cannot date this new invoice (${newIssueDateStr}) earlier than ${latestDateStr}.`,
+                        latestInvoice: latestInvoice[0],
+                        requiredMinDate: latestDateStr
+                    });
+                }
+            }
+
             // Lock and retrieve next sequence atomically for this document type and FY
             const [seqRows] = await conn.query(
                 'SELECT current_number FROM document_sequences WHERE doc_type = ? AND financial_year = ? FOR UPDATE',
@@ -7050,8 +7093,16 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
             extra_hrs_charges: Number(body.extra_hrs_charges || 0),
             advance_received: Number(body.advance_received || 0),
             balance_due: Number(body.balance_due !== undefined ? body.balance_due : (Number(body.total_amount || 0) - Number(body.amount_paid || 0))),
-            issue_date: issueDate,
-            due_date: body.due_date || null,
+            issue_date: String(issueDate).split('T')[0],
+            due_date: (() => {
+                const rawDue = body.due_date ? String(body.due_date).split('T')[0] : null;
+                const rawIssue = String(issueDate).split('T')[0];
+                if (rawDue && rawDue < rawIssue) {
+                    console.warn(`[Invoice Issue Guard] Inverted due_date ${rawDue} < issue_date ${rawIssue}. Normalizing to issue_date.`);
+                    return rawIssue;
+                }
+                return rawDue;
+            })(),
             notes: body.notes || null,
             place_of_supply: body.place_of_supply || 'Maharashtra',
             place_of_supply_code: body.place_of_supply_code || '27',
@@ -7300,6 +7351,7 @@ app.get('/api/invoices/gstr1-summary', authMiddleware, async (req, res) => {
                 id, document_type, invoice_no, sequence_number, status, is_gst,
                 client_name, client_gst, place_of_supply, place_of_supply_code,
                 issue_date, subtotal, discount, tax_total, total_amount, gst_type,
+                driver_stay_allowance, extra_km_charges, extra_hrs_charges,
                 original_invoice_no, credit_reason
             FROM invoices
             WHERE (financial_year = ? OR (issue_date >= ? AND issue_date <= ?))
@@ -7389,6 +7441,134 @@ app.get('/api/invoices/gstr1-summary', authMiddleware, async (req, res) => {
     }
 });
 
+// 4a. GST Health & Integrity Audit Helper
+function auditInvoiceRecords(records) {
+    const checks = [];
+    const issues = [];
+
+    // Filter to outward invoices with official sequence numbers
+    const officialDocs = records.filter(r => r.invoice_no && (r.document_type || 'Invoice') === 'Invoice');
+    
+    // 1. Sequence Continuity Check
+    const seqMap = new Map();
+    officialDocs.forEach(r => {
+        let seq = r.sequence_number;
+        if (seq == null) {
+            const m = String(r.invoice_no).match(/(\d+)$/);
+            if (m) seq = parseInt(m[1], 10);
+        }
+        if (seq != null && !isNaN(seq)) {
+            seqMap.set(Number(seq), r);
+        }
+    });
+
+    const seqNums = Array.from(seqMap.keys()).sort((a, b) => a - b);
+    let seqStatus = 'pass';
+    let seqDesc = '';
+    const missingSeqs = [];
+
+    if (seqNums.length > 0) {
+        const minSeq = seqNums[0];
+        const maxSeq = seqNums[seqNums.length - 1];
+        for (let s = minSeq; s <= maxSeq; s++) {
+            if (!seqMap.has(s)) {
+                missingSeqs.push(s);
+            }
+        }
+        if (missingSeqs.length > 0) {
+            seqStatus = 'warn';
+            seqDesc = `Gap detected: Missing sequence number(s) ${missingSeqs.map(n => `#${String(n).padStart(4, '0')}`).join(', ')} between min (#${String(minSeq).padStart(4, '0')}) and max (#${String(maxSeq).padStart(4, '0')}).`;
+            issues.push(seqDesc);
+        } else {
+            seqDesc = `Continuous serial numbers from #${String(minSeq).padStart(4, '0')} to #${String(maxSeq).padStart(4, '0')} (${seqNums.length} documents, 0 missing).`;
+        }
+    } else {
+        seqDesc = 'No sequential tax invoices in selected period.';
+    }
+    checks.push({ id: 'sequence', title: 'Sequence Continuity (CGST Rule 13)', status: seqStatus, description: seqDesc });
+
+    // 2. Chronological Consistency Check
+    const sortedOfficial = [...officialDocs].sort((a, b) => {
+        const seqA = a.sequence_number != null ? Number(a.sequence_number) : (parseInt(String(a.invoice_no).replace(/\D+/g, ''), 10) || 0);
+        const seqB = b.sequence_number != null ? Number(b.sequence_number) : (parseInt(String(b.invoice_no).replace(/\D+/g, ''), 10) || 0);
+        return seqA - seqB;
+    });
+
+    let chronoViolations = [];
+    for (let i = 1; i < sortedOfficial.length; i++) {
+        const prev = sortedOfficial[i - 1];
+        const curr = sortedOfficial[i];
+        if (prev.issue_date && curr.issue_date) {
+            const pDate = new Date(prev.issue_date).getTime();
+            const cDate = new Date(curr.issue_date).getTime();
+            if (cDate < pDate) {
+                const pStr = new Date(prev.issue_date).toLocaleDateString('en-GB');
+                const cStr = new Date(curr.issue_date).toLocaleDateString('en-GB');
+                chronoViolations.push(`${curr.invoice_no} (${cStr}) dated earlier than ${prev.invoice_no} (${pStr})`);
+            }
+        }
+    }
+    if (chronoViolations.length > 0) {
+        const msg = `Chronological order violation: ${chronoViolations.join('; ')}`;
+        issues.push(msg);
+        checks.push({ id: 'chronology', title: 'Chronological Integrity (Forward Dates)', status: 'fail', description: msg });
+    } else {
+        checks.push({ id: 'chronology', title: 'Chronological Integrity (Forward Dates)', status: 'pass', description: 'All sequential invoice dates advance forward in time without backdating anomalies.' });
+    }
+
+    // 3. Due Date Integrity Check
+    let dueDateViolations = [];
+    records.forEach(r => {
+        if (r.issue_date && r.due_date) {
+            const iDate = new Date(r.issue_date).getTime();
+            const dDate = new Date(r.due_date).getTime();
+            if (dDate < iDate) {
+                const iStr = new Date(r.issue_date).toLocaleDateString('en-GB');
+                const dStr = new Date(r.due_date).toLocaleDateString('en-GB');
+                dueDateViolations.push(`${r.invoice_no || r.id?.substring(0, 8)}: Due date (${dStr}) < Issue date (${iStr})`);
+            }
+        }
+    });
+    if (dueDateViolations.length > 0) {
+        const msg = `Inverted dates detected: ${dueDateViolations.join('; ')}`;
+        issues.push(msg);
+        checks.push({ id: 'due_date', title: 'Due Date Validity (Due >= Issue)', status: 'fail', description: msg });
+    } else {
+        checks.push({ id: 'due_date', title: 'Due Date Validity (Due >= Issue)', status: 'pass', description: 'All due dates are on or after issue dates across all documents.' });
+    }
+
+    // 4. Duplicate Billing / Booking Check
+    const activeRecords = records.filter(r => r.status !== 'Void');
+    const bookingMap = new Map();
+    const dupBookings = [];
+    activeRecords.forEach(r => {
+        if (r.booking_id) {
+            if (bookingMap.has(r.booking_id)) {
+                dupBookings.push(`Booking #${r.booking_id} shared by ${bookingMap.get(r.booking_id)} and ${r.invoice_no || r.id?.substring(0, 8)}`);
+            } else {
+                bookingMap.set(r.booking_id, r.invoice_no || r.id?.substring(0, 8));
+            }
+        }
+    });
+
+    if (dupBookings.length > 0) {
+        const msg = `Duplicate booking billing: ${dupBookings.join('; ')}`;
+        issues.push(msg);
+        checks.push({ id: 'duplicates', title: 'Duplicate Invoicing Guard', status: 'fail', description: msg });
+    } else {
+        checks.push({ id: 'duplicates', title: 'Duplicate Invoicing Guard', status: 'pass', description: 'Zero duplicate bookings or overlapping invoices detected.' });
+    }
+
+    const overallStatus = issues.length > 0 ? (checks.some(c => c.status === 'fail') ? 'fail' : 'warn') : 'pass';
+
+    return {
+        overallStatus,
+        checks,
+        issuesCount: issues.length,
+        issues
+    };
+}
+
 // 4b. Flexible Invoices GST Export Query (Period ranges, custom dates, full filters & SAC items)
 app.get('/api/invoices/export-query', authMiddleware, async (req, res) => {
     try {
@@ -7459,48 +7639,79 @@ app.get('/api/invoices/export-query', authMiddleware, async (req, res) => {
                 WHERE ${whereSql}
             `, params);
 
+            // Run fast lightweight compliance audit
+            const [lightweightRows] = await pool.query(`
+                SELECT id, document_type, invoice_no, sequence_number, status, issue_date, due_date, booking_id, client_name, total_amount
+                FROM invoices
+                WHERE ${whereSql}
+                ORDER BY sequence_number ASC, issue_date ASC
+            `, params);
+
+            const audit = auditInvoiceRecords(lightweightRows);
+
             return res.json({
                 success: true,
-                summary: summaryRows[0] || { total_count: 0, total_taxable: 0, total_tax: 0, total_amount: 0, b2b_count: 0, b2c_count: 0 }
+                summary: summaryRows[0] || { total_count: 0, total_taxable: 0, total_tax: 0, total_amount: 0, b2b_count: 0, b2c_count: 0 },
+                audit
             });
         }
 
-        // Fetch full matching invoices
+        // Fetch full matching invoices with all columns and formatted calendar dates
         const [invoices] = await pool.query(`
             SELECT 
-                id, document_type, invoice_no, sequence_number, status, is_gst,
-                client_name, email, phone, address, client_gst, place_of_supply, place_of_supply_code,
-                reverse_charge, issue_date, due_date, subtotal, discount, tax_total, total_amount,
-                amount_paid, balance_due, payment_status, gst_type, original_invoice_no, credit_reason,
-                financial_year, created_at
+                *,
+                DATE_FORMAT(issue_date, '%Y-%m-%d') as issue_date,
+                DATE_FORMAT(due_date, '%Y-%m-%d') as due_date
             FROM invoices
             WHERE ${whereSql}
             ORDER BY issue_date ASC, sequence_number ASC, created_at ASC
         `, params);
 
         let itemsMap = {};
+        let customFieldsMap = {};
         if (include_items === 'true' && invoices.length > 0) {
             const invoiceIds = invoices.map(i => i.id);
             const chunkSize = 500;
             for (let i = 0; i < invoiceIds.length; i += chunkSize) {
                 const chunk = invoiceIds.slice(i, i + chunkSize);
                 const [itemRows] = await pool.query(
-                    `SELECT id, invoice_id, description, quantity, unit_price, tax_rate, tax_amount, total, hsn_sac
+                    `SELECT *,
+                            DATE_FORMAT(date_from, '%Y-%m-%d') as date_from,
+                            DATE_FORMAT(date_to, '%Y-%m-%d') as date_to
                      FROM invoice_items
-                     WHERE invoice_id IN (?)`,
+                     WHERE invoice_id IN (?)
+                     ORDER BY id ASC`,
                     [chunk]
                 );
                 itemRows.forEach(it => {
                     if (!itemsMap[it.invoice_id]) itemsMap[it.invoice_id] = [];
                     itemsMap[it.invoice_id].push(it);
                 });
+
+                // Batch-fetch custom fields to eliminate N+1 fetches and ensure 100% data fidelity
+                try {
+                    const [cfRows] = await pool.query(
+                        `SELECT id, invoice_id, label, amount, is_deduction
+                         FROM invoice_custom_fields
+                         WHERE invoice_id IN (?)
+                         ORDER BY id ASC`,
+                        [chunk]
+                    );
+                    cfRows.forEach(cf => {
+                        if (!customFieldsMap[cf.invoice_id]) customFieldsMap[cf.invoice_id] = [];
+                        customFieldsMap[cf.invoice_id].push(cf);
+                    });
+                } catch (cfErr) {
+                    console.warn('[Invoices Export Query] Custom fields fetch error (optional):', cfErr.message);
+                }
             }
         }
 
-        // Attach items to each invoice
+        // Attach items and custom fields to each invoice
         const invoicesWithItems = invoices.map(inv => ({
             ...inv,
-            items: itemsMap[inv.id] || []
+            items: itemsMap[inv.id] || [],
+            custom_fields: customFieldsMap[inv.id] || []
         }));
 
         // Compute summary metrics
@@ -7550,6 +7761,7 @@ app.get('/api/invoices/export-query', authMiddleware, async (req, res) => {
                 b2b_count: b2bCount,
                 b2c_count: b2cCount
             },
+            audit: auditInvoiceRecords(invoices),
             invoices: invoicesWithItems
         });
     } catch (err) {
@@ -8254,6 +8466,14 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
                     body.status = 'Draft';
                 }
             }
+            if (body.due_date && body.issue_date) {
+                const dDue = String(body.due_date).split('T')[0];
+                const dIssue = String(body.issue_date).split('T')[0];
+                if (dDue < dIssue) {
+                    console.warn(`[Invoice Guard] Inverted due_date ${dDue} < issue_date ${dIssue} on insert. Normalizing to issue_date.`);
+                    body.due_date = dIssue;
+                }
+            }
             delete body.created_at;
         }
 
@@ -8671,6 +8891,23 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
                 const [dup] = await pool.query('SELECT id FROM invoices WHERE invoice_no = ? AND id != ?', [body.invoice_no, id]);
                 if (dup.length > 0) {
                     return res.status(409).json({ error: `Invoice number ${body.invoice_no} is already assigned to document ${dup[0].id}` });
+                }
+            }
+            if (body.due_date && body.issue_date) {
+                const dDue = String(body.due_date).split('T')[0];
+                const dIssue = String(body.issue_date).split('T')[0];
+                if (dDue < dIssue) {
+                    console.warn(`[Invoice Guard] Inverted due_date ${dDue} < issue_date ${dIssue} on update. Normalizing to issue_date.`);
+                    body.due_date = dIssue;
+                }
+            } else if (body.due_date && !body.issue_date) {
+                const [cur] = await pool.query('SELECT issue_date FROM invoices WHERE id = ?', [id]);
+                if (cur.length > 0 && cur[0].issue_date) {
+                    const curIssue = String(cur[0].issue_date).split('T')[0];
+                    const dDue = String(body.due_date).split('T')[0];
+                    if (dDue < curIssue) {
+                        body.due_date = curIssue;
+                    }
                 }
             }
             delete body.created_at;

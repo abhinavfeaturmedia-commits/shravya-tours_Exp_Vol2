@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     FileSpreadsheet, Download, Calendar, Layers, Filter, CheckCircle2,
     AlertCircle, FileText, X, Loader2, Sparkles, Users, Hash, Check,
-    Clock, RefreshCw
+    Clock, RefreshCw, ChevronDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -12,6 +12,8 @@ import {
     exportClientGstLedgerWorkbook,
     exportMasterGstWorkbook,
     exportDetailedCsvRegister,
+    runGstHealthAudit,
+    GstAuditReport,
     GstInvoiceRecord
 } from '../../src/lib/gstExportEngine';
 import { getIndianFinancialYear } from '../../utils/gstUtils';
@@ -76,6 +78,8 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
         b2b_count: number;
         b2c_count: number;
     } | null>(null);
+    const [auditReport, setAuditReport] = useState<GstAuditReport | null>(null);
+    const [showAuditDetails, setShowAuditDetails] = useState<boolean>(false);
 
     const getToken = () => localStorage.getItem('shravya_jwt') || localStorage.getItem('token');
 
@@ -211,6 +215,9 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                         b2c_count: Number(d.summary.b2c_count || 0)
                     });
                 }
+                if (d.audit) {
+                    setAuditReport(d.audit);
+                }
             }
         } catch (e) {
             console.error('Failed to load export summary', e);
@@ -248,6 +255,13 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                 toast.info('No documents found matching these dates and filters.', { id: tid });
                 setDownloading(false);
                 return;
+            }
+
+            // Run client-side pre-export audit verification
+            const exportAudit = runGstHealthAudit(invoices);
+            setAuditReport(exportAudit);
+            if (exportAudit.overallStatus === 'fail') {
+                toast.warning(`Notice: ${exportAudit.issuesCount} integrity issue(s) detected in this batch. Review audit details below.`, { duration: 5000 });
             }
 
             const cleanPeriodLabel = periodLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -711,6 +725,120 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                             <span>No invoices found for the selected period ({periodLabel}). You can still export an empty template or choose another range like <strong>This FY ({currentFy})</strong> or <strong>All Time</strong>.</span>
                         </div>
                     )}
+
+                    {/* Step 5: Pre-Export GST Health Diagnostic */}
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 p-4 shadow-sm transition-all">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                                    !auditReport ? 'bg-slate-100 text-slate-500 dark:bg-slate-800' :
+                                    auditReport.overallStatus === 'pass' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' :
+                                    auditReport.overallStatus === 'warn' ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800' :
+                                    'bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200 dark:border-rose-800'
+                                }`}>
+                                    {!auditReport || loadingSummary ? (
+                                        <RefreshCw size={16} className={loadingSummary ? "animate-spin" : ""} />
+                                    ) : auditReport.overallStatus === 'pass' ? (
+                                        <CheckCircle2 size={18} />
+                                    ) : (
+                                        <AlertCircle size={18} />
+                                    )}
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                                            GST Health & Sequence Diagnostic
+                                        </h4>
+                                        {auditReport && (
+                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                                                auditReport.overallStatus === 'pass'
+                                                    ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700'
+                                                    : auditReport.overallStatus === 'warn'
+                                                    ? 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700'
+                                                    : 'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-700'
+                                            }`}>
+                                                {auditReport.overallStatus === 'pass' ? '🟢 4/4 Checks Passed (100% CA Ready)' : `⚠️ ${auditReport.issuesCount} Anomaly Detected`}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                        Automated audit verifies sequence continuity, chronological dates, due-date validity, and duplicate billing before export.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setShowAuditDetails(!showAuditDetails)}
+                                className="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-1 self-start sm:self-center cursor-pointer"
+                            >
+                                <span>{showAuditDetails ? 'Hide Details' : 'View 4-Point Breakdown'}</span>
+                                <ChevronDown size={14} className={`transform transition-transform ${showAuditDetails ? 'rotate-180' : ''}`} />
+                            </button>
+                        </div>
+
+                        {/* 4 Health Checks Grid */}
+                        {auditReport && (
+                            <div className={`space-y-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 ${showAuditDetails ? 'block' : 'hidden sm:block'}`}>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {auditReport.checks.map(c => {
+                                        const isPass = c.status === 'pass';
+                                        const isWarn = c.status === 'warn';
+                                        return (
+                                            <div
+                                                key={c.id}
+                                                className={`p-2.5 rounded-xl border text-xs flex items-start gap-2.5 transition-all ${
+                                                    isPass
+                                                        ? 'bg-slate-50/60 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                                                        : isWarn
+                                                        ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+                                                        : 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+                                                }`}
+                                            >
+                                                <div className="mt-0.5 flex-shrink-0">
+                                                    {isPass ? (
+                                                        <CheckCircle2 size={15} className="text-emerald-500" />
+                                                    ) : (
+                                                        <AlertCircle size={15} className={isWarn ? "text-amber-500" : "text-rose-500"} />
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between">
+                                                        <p className="font-bold text-[11px] text-slate-900 dark:text-white leading-tight">
+                                                            {c.title}
+                                                        </p>
+                                                        <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded ${
+                                                            isPass ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-100/60 dark:bg-emerald-950/60' :
+                                                            isWarn ? 'text-amber-600 dark:text-amber-400 bg-amber-100/60 dark:bg-amber-950/60' :
+                                                            'text-rose-600 dark:text-rose-400 bg-rose-100/60 dark:bg-rose-950/60'
+                                                        }`}>
+                                                            {c.status}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                                                        {c.description}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {auditReport.issues && auditReport.issues.length > 0 && (
+                                    <div className="mt-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 text-amber-800 dark:text-amber-200 text-xs">
+                                        <p className="font-bold text-[11px] flex items-center gap-1.5 mb-1 text-amber-900 dark:text-amber-100">
+                                            <AlertCircle size={14} className="text-amber-600" /> Actionable Recommendations for CA / Portal Filing:
+                                        </p>
+                                        <ul className="list-disc list-inside space-y-0.5 text-[10px] text-amber-800 dark:text-amber-300">
+                                            {auditReport.issues.map((iss, idx) => (
+                                                <li key={idx}>{iss}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Footer Controls */}

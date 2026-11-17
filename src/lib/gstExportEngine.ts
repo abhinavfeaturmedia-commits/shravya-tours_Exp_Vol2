@@ -30,6 +30,10 @@ export interface GstInvoiceRecord {
     amount_paid?: number | string;
     balance_due?: number | string;
     payment_status?: string;
+    driver_stay_allowance?: number | string;
+    extra_km_charges?: number | string;
+    extra_hrs_charges?: number | string;
+    discount?: number | string;
     items?: Array<{
         id?: string;
         description?: string;
@@ -47,6 +51,199 @@ export interface GstExportOptions {
     filename?: string;
     financialYear?: string;
     periodLabel?: string;
+}
+
+export interface GstAuditCheck {
+    id: string;
+    title: string;
+    status: 'pass' | 'warn' | 'fail';
+    description: string;
+    details?: string[];
+}
+
+export interface GstAuditReport {
+    overallStatus: 'pass' | 'warn' | 'fail';
+    totalDocuments: number;
+    checks: GstAuditCheck[];
+    issuesCount: number;
+    issues: string[];
+}
+
+/**
+ * 4-Point Automated GST Compliance & Health Audit
+ * Validates sequence continuity, chronological order, due dates, and duplicate billing
+ */
+export function runGstHealthAudit(invoices: GstInvoiceRecord[]): GstAuditReport {
+    const checks: GstAuditCheck[] = [];
+    const issues: string[] = [];
+
+    // Filter to outward tax invoices with official invoice numbers
+    const officialDocs = invoices.filter(r => r.invoice_no && (r.document_type || 'Invoice').toLowerCase() === 'invoice');
+
+    // 1. Sequence Continuity Check (CGST Rule 13)
+    const seqMap = new Map<number, GstInvoiceRecord>();
+    officialDocs.forEach(r => {
+        let seq = r.sequence_number;
+        if (seq == null) {
+            const m = String(r.invoice_no).match(/(\d+)$/);
+            if (m) seq = parseInt(m[1], 10);
+        }
+        if (seq != null && !isNaN(Number(seq))) {
+            seqMap.set(Number(seq), r);
+        }
+    });
+
+    const seqNums = Array.from(seqMap.keys()).sort((a, b) => a - b);
+    let seqStatus: 'pass' | 'warn' | 'fail' = 'pass';
+    let seqDesc = '';
+    const missingSeqs: number[] = [];
+
+    if (seqNums.length > 0) {
+        const minSeq = seqNums[0];
+        const maxSeq = seqNums[seqNums.length - 1];
+        for (let s = minSeq; s <= maxSeq; s++) {
+            if (!seqMap.has(s)) {
+                missingSeqs.push(s);
+            }
+        }
+        if (missingSeqs.length > 0) {
+            seqStatus = 'warn';
+            seqDesc = `Gap detected: Missing sequence #${missingSeqs.map(n => String(n).padStart(4, '0')).join(', ')} between min (#${String(minSeq).padStart(4, '0')}) and max (#${String(maxSeq).padStart(4, '0')}).`;
+            issues.push(seqDesc);
+        } else {
+            seqDesc = `Continuous serial numbers from #${String(minSeq).padStart(4, '0')} to #${String(maxSeq).padStart(4, '0')} (${seqNums.length} documents, 0 missing).`;
+        }
+    } else {
+        seqDesc = 'No sequential tax invoices in selected period.';
+    }
+    checks.push({
+        id: 'sequence',
+        title: 'Sequence Continuity (CGST Rule 13)',
+        status: seqStatus,
+        description: seqDesc,
+        details: missingSeqs.map(n => `Missing serial #${String(n).padStart(4, '0')}`)
+    });
+
+    // 2. Chronological Order Check (GST Forward Time Rule)
+    const sortedOfficial = [...officialDocs].sort((a, b) => {
+        const seqA = a.sequence_number != null ? Number(a.sequence_number) : (parseInt(String(a.invoice_no).replace(/\D+/g, ''), 10) || 0);
+        const seqB = b.sequence_number != null ? Number(b.sequence_number) : (parseInt(String(b.invoice_no).replace(/\D+/g, ''), 10) || 0);
+        return seqA - seqB;
+    });
+
+    const chronoViolations: string[] = [];
+    for (let i = 1; i < sortedOfficial.length; i++) {
+        const prev = sortedOfficial[i - 1];
+        const curr = sortedOfficial[i];
+        const prevRaw = prev.issue_date || prev.date;
+        const currRaw = curr.issue_date || curr.date;
+        if (prevRaw && currRaw) {
+            const pDate = new Date(prevRaw).getTime();
+            const cDate = new Date(currRaw).getTime();
+            if (cDate < pDate) {
+                const pStr = new Date(prevRaw).toLocaleDateString('en-GB');
+                const cStr = new Date(currRaw).toLocaleDateString('en-GB');
+                chronoViolations.push(`${curr.invoice_no} (${cStr}) dated earlier than ${prev.invoice_no} (${pStr})`);
+            }
+        }
+    }
+
+    if (chronoViolations.length > 0) {
+        const msg = `Chronological backward jump: ${chronoViolations.join('; ')}`;
+        issues.push(msg);
+        checks.push({
+            id: 'chronology',
+            title: 'Chronological Integrity (Forward Dates)',
+            status: 'fail',
+            description: msg,
+            details: chronoViolations
+        });
+    } else {
+        checks.push({
+            id: 'chronology',
+            title: 'Chronological Integrity (Forward Dates)',
+            status: 'pass',
+            description: 'All sequential invoices advance forward in time without backdating anomalies.'
+        });
+    }
+
+    // 3. Due Date Integrity Check (Due >= Issue)
+    const dueDateViolations: string[] = [];
+    invoices.forEach(r => {
+        const issueRaw = r.issue_date || r.date;
+        const dueRaw = r.due_date;
+        if (issueRaw && dueRaw) {
+            const iDate = new Date(issueRaw).getTime();
+            const dDate = new Date(dueRaw).getTime();
+            if (dDate < iDate) {
+                const iStr = new Date(issueRaw).toLocaleDateString('en-GB');
+                const dStr = new Date(dueRaw).toLocaleDateString('en-GB');
+                dueDateViolations.push(`${r.invoice_no || r.id?.substring(0, 8)}: Due date (${dStr}) < Issue date (${iStr})`);
+            }
+        }
+    });
+
+    if (dueDateViolations.length > 0) {
+        const msg = `Inverted dates detected: ${dueDateViolations.join('; ')}`;
+        issues.push(msg);
+        checks.push({
+            id: 'due_date',
+            title: 'Due Date Validity (Due >= Issue)',
+            status: 'fail',
+            description: msg,
+            details: dueDateViolations
+        });
+    } else {
+        checks.push({
+            id: 'due_date',
+            title: 'Due Date Validity (Due >= Issue)',
+            status: 'pass',
+            description: 'All due dates are on or after issue dates across all documents.'
+        });
+    }
+
+    // 4. Duplicate Billing / Booking Check
+    const activeRecords = invoices.filter(r => r.status !== 'Void');
+    const bookingMap = new Map<string, string>();
+    const dupBookings: string[] = [];
+    activeRecords.forEach(r => {
+        if (r.booking_id) {
+            if (bookingMap.has(r.booking_id)) {
+                dupBookings.push(`Booking #${r.booking_id} shared by ${bookingMap.get(r.booking_id)} and ${r.invoice_no || r.id?.substring(0, 8)}`);
+            } else {
+                bookingMap.set(r.booking_id, r.invoice_no || r.id?.substring(0, 8) || '');
+            }
+        }
+    });
+
+    if (dupBookings.length > 0) {
+        const msg = `Duplicate booking billing: ${dupBookings.join('; ')}`;
+        issues.push(msg);
+        checks.push({
+            id: 'duplicates',
+            title: 'Duplicate Invoicing Guard',
+            status: 'fail',
+            description: msg,
+            details: dupBookings
+        });
+    } else {
+        checks.push({
+            id: 'duplicates',
+            title: 'Duplicate Invoicing Guard',
+            status: 'pass',
+            description: 'Zero duplicate bookings or overlapping invoices detected.'
+        });
+    }
+
+    const overallStatus: 'pass' | 'warn' | 'fail' = issues.length > 0 ? (checks.some(c => c.status === 'fail') ? 'fail' : 'warn') : 'pass';
+
+    return {
+        overallStatus,
+        totalDocuments: invoices.length,
+        checks,
+        issuesCount: issues.length,
+        issues
+    };
 }
 
 /**
@@ -188,6 +385,10 @@ export function buildConsolidatedGstSheets(invoices: GstInvoiceRecord[]) {
         'CGST',
         'SGST',
         'IGST',
+        'Driver Allowance',
+        'Toll/Parking/Permit charges',
+        'Extra Km/Hr charges',
+        'Discount',
         'Total Amount'
     ];
 
@@ -196,6 +397,10 @@ export function buildConsolidatedGstSheets(invoices: GstInvoiceRecord[]) {
     let runningCgst = 0;
     let runningSgst = 0;
     let runningIgst = 0;
+    let runningDriverAllowance = 0;
+    let runningTollParking = 0;
+    let runningExtraKmHr = 0;
+    let runningDiscount = 0;
     let runningTotal = 0;
 
     const sourceRefs: { index: string; reference: string }[] = [];
@@ -213,12 +418,16 @@ export function buildConsolidatedGstSheets(invoices: GstInvoiceRecord[]) {
         let taxable = Number(inv.subtotal ?? inv.taxable_amount ?? 0);
         let totalAmt = Number(inv.total_amount ?? inv.grand_total ?? 0);
         let taxTotal = Number(inv.tax_total ?? inv.tax_amount ?? 0);
+        const driverAllowance = toCurr(Number(inv.driver_stay_allowance ?? 0));
+        const tollParking = toCurr(Number(inv.extra_km_charges ?? 0));
+        const extraKmHr = toCurr(Number(inv.extra_hrs_charges ?? 0));
+        const discountAmt = toCurr(Number(inv.discount ?? 0));
 
         if (!taxable && totalAmt > 0) {
-            taxable = taxTotal > 0 ? totalAmt - taxTotal : totalAmt / 1.05;
+            taxable = taxTotal > 0 ? (totalAmt - taxTotal - driverAllowance - tollParking - extraKmHr + discountAmt) : totalAmt / 1.05;
         }
         if (!taxTotal && totalAmt > 0 && taxable > 0) {
-            taxTotal = totalAmt - taxable;
+            taxTotal = Math.max(0, totalAmt - taxable - driverAllowance - tollParking - extraKmHr + discountAmt);
         }
 
         taxable = toCurr(taxable);
@@ -245,13 +454,20 @@ export function buildConsolidatedGstSheets(invoices: GstInvoiceRecord[]) {
             runningSgst = toCurr(runningSgst + halfTax);
         }
 
-        const calculatedRowTotal = toCurr(taxable + (isInterState ? (igstCell?.v || 0) : ((cgstCell?.v || 0) + (sgstCell?.v || 0))));
-        runningTotal = toCurr(runningTotal + calculatedRowTotal);
+        runningDriverAllowance = toCurr(runningDriverAllowance + driverAllowance);
+        runningTollParking = toCurr(runningTollParking + tollParking);
+        runningExtraKmHr = toCurr(runningExtraKmHr + extraKmHr);
+        runningDiscount = toCurr(runningDiscount + discountAmt);
+
+        const taxesVal = isInterState ? (Number(igstCell?.v) || 0) : ((Number(cgstCell?.v) || 0) + (Number(sgstCell?.v) || 0));
+        const calculatedRowTotal = toCurr(taxable + taxesVal + driverAllowance + tollParking + extraKmHr - discountAmt);
+        const finalRowTotal = totalAmt > 0 ? toCurr(totalAmt) : calculatedRowTotal;
+        runningTotal = toCurr(runningTotal + finalRowTotal);
 
         const totalCell = {
             t: 'n',
-            v: calculatedRowTotal,
-            f: `SUM(F${rowNumber}:I${rowNumber})`,
+            v: finalRowTotal,
+            f: `SUM(F${rowNumber}:L${rowNumber})-M${rowNumber}`,
             z: numFormat
         };
 
@@ -265,6 +481,10 @@ export function buildConsolidatedGstSheets(invoices: GstInvoiceRecord[]) {
             cgstCell,
             sgstCell,
             igstCell,
+            { t: 'n', v: driverAllowance, z: numFormat },
+            { t: 'n', v: tollParking, z: numFormat },
+            { t: 'n', v: extraKmHr, z: numFormat },
+            { t: 'n', v: discountAmt, z: numFormat },
             totalCell
         ]);
 
@@ -287,13 +507,17 @@ export function buildConsolidatedGstSheets(invoices: GstInvoiceRecord[]) {
         { t: 'n', v: runningCgst, f: invoices.length > 0 ? `SUM(G2:G${lastDataRow})` : 0, z: numFormat },
         { t: 'n', v: runningSgst, f: invoices.length > 0 ? `SUM(H2:H${lastDataRow})` : 0, z: numFormat },
         { t: 'n', v: runningIgst, f: invoices.length > 0 ? `SUM(I2:I${lastDataRow})` : 0, z: numFormat },
-        { t: 'n', v: runningTotal, f: invoices.length > 0 ? `SUM(J2:J${lastDataRow})` : 0, z: numFormat }
+        { t: 'n', v: runningDriverAllowance, f: invoices.length > 0 ? `SUM(J2:J${lastDataRow})` : 0, z: numFormat },
+        { t: 'n', v: runningTollParking, f: invoices.length > 0 ? `SUM(K2:K${lastDataRow})` : 0, z: numFormat },
+        { t: 'n', v: runningExtraKmHr, f: invoices.length > 0 ? `SUM(L2:L${lastDataRow})` : 0, z: numFormat },
+        { t: 'n', v: runningDiscount, f: invoices.length > 0 ? `SUM(M2:M${lastDataRow})` : 0, z: numFormat },
+        { t: 'n', v: runningTotal, f: invoices.length > 0 ? `SUM(N2:N${lastDataRow})` : 0, z: numFormat }
     ];
     ws1Data.push(totalRow);
 
     const ws1 = XLSX.utils.aoa_to_sheet(ws1Data);
 
-    const colLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    const colLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N'];
     colLetters.forEach((col) => {
         const cellAddr = `${col}1`;
         if (ws1[cellAddr]) ws1[cellAddr].s = headerStyleLightBlue;
@@ -301,20 +525,24 @@ export function buildConsolidatedGstSheets(invoices: GstInvoiceRecord[]) {
 
     if (ws1Data.length > 1) {
         ws1['!merges'] = [{ s: { r: totalRowIndex - 1, c: 0 }, e: { r: totalRowIndex - 1, c: 4 } }];
-        applyStylesToRange(ws1, totalRowIndex - 1, totalRowIndex - 1, 0, 9, totalRowStyle);
+        applyStylesToRange(ws1, totalRowIndex - 1, totalRowIndex - 1, 0, 13, totalRowStyle);
     }
 
     ws1['!cols'] = [
-        { wch: 8 },   // Source
-        { wch: 18 },  // Invoice No
-        { wch: 14 },  // Date
-        { wch: 36 },  // Customer Name
-        { wch: 20 },  // Customer GSTIN
-        { wch: 16 },  // Taxable Value
-        { wch: 14 },  // CGST
-        { wch: 14 },  // SGST
-        { wch: 14 },  // IGST
-        { wch: 16 }   // Total Amount
+        { wch: 8 },   // A: Source
+        { wch: 18 },  // B: Invoice No
+        { wch: 14 },  // C: Date
+        { wch: 36 },  // D: Customer Name
+        { wch: 20 },  // E: Customer GSTIN
+        { wch: 16 },  // F: Taxable Value
+        { wch: 14 },  // G: CGST
+        { wch: 14 },  // H: SGST
+        { wch: 14 },  // I: IGST
+        { wch: 18 },  // J: Driver Allowance
+        { wch: 26 },  // K: Toll/Parking/Permit charges
+        { wch: 20 },  // L: Extra Km/Hr charges
+        { wch: 14 },  // M: Discount
+        { wch: 18 }   // N: Total Amount
     ];
 
     const ws2Data: any[][] = [['Index', 'Reference']];
@@ -425,8 +653,18 @@ export function buildGstr1Sheets(invoices: GstInvoiceRecord[]) {
         const hasGstin = rawGst.length >= 15;
         const invNo = inv.invoice_no || inv.id || '';
         const invDate = formatGstr1PortalDate(inv.issue_date || inv.date || inv.created_at);
-        const invValue = toCurr(inv.total_amount ?? inv.grand_total ?? 0);
-        const taxable = toCurr(inv.subtotal ?? (invValue / 1.05));
+        const driverAllowance = toCurr(Number(inv.driver_stay_allowance ?? 0));
+        const tollParking = toCurr(Number(inv.extra_km_charges ?? 0));
+        const extraKmHr = toCurr(Number(inv.extra_hrs_charges ?? 0));
+        const discountAmt = toCurr(Number(inv.discount ?? 0));
+        const taxTotal = toCurr(Number(inv.tax_total ?? 0));
+        let invValue = toCurr(inv.total_amount ?? inv.grand_total ?? 0);
+        let taxable = toCurr(inv.subtotal ?? 0);
+        if (!invValue && taxable > 0) {
+            invValue = toCurr(taxable + taxTotal + driverAllowance + tollParking + extraKmHr - discountAmt);
+        } else if (!taxable && invValue > 0) {
+            taxable = toCurr(taxTotal > 0 ? (invValue - taxTotal - driverAllowance - tollParking - extraKmHr + discountAmt) : (invValue / 1.05));
+        }
         const posCode = inv.place_of_supply_code || '27';
         const posName = inv.place_of_supply || 'Maharashtra';
         const posFormatted = `${posCode}-${posName}`;
@@ -518,11 +756,16 @@ export function buildGstr1Sheets(invoices: GstInvoiceRecord[]) {
     docTypes.forEach(dt => {
         const matches = invoices.filter(r => (r.document_type || 'Invoice').toLowerCase() === dt.key.toLowerCase());
         const withNo = matches.filter(r => r.invoice_no);
+        const sortedWithNo = [...withNo].sort((a, b) => {
+            const seqA = a.sequence_number != null ? Number(a.sequence_number) : (parseInt(String(a.invoice_no).replace(/\D+/g, ''), 10) || 0);
+            const seqB = b.sequence_number != null ? Number(b.sequence_number) : (parseInt(String(b.invoice_no).replace(/\D+/g, ''), 10) || 0);
+            return seqA - seqB;
+        });
         const cancelled = matches.filter(r => r.status === 'Void').length;
         const total = matches.length;
         const netIssued = total - cancelled;
-        const fromSerial = withNo.length > 0 ? withNo[0].invoice_no : (total > 0 ? `#${matches[0].id?.substring(0, 6).toUpperCase()}` : '—');
-        const toSerial = withNo.length > 0 ? withNo[withNo.length - 1].invoice_no : (total > 0 ? `#${matches[matches.length - 1].id?.substring(0, 6).toUpperCase()}` : '—');
+        const fromSerial = sortedWithNo.length > 0 ? sortedWithNo[0].invoice_no : (total > 0 ? `#${matches[0].id?.substring(0, 6).toUpperCase()}` : '—');
+        const toSerial = sortedWithNo.length > 0 ? sortedWithNo[sortedWithNo.length - 1].invoice_no : (total > 0 ? `#${matches[matches.length - 1].id?.substring(0, 6).toUpperCase()}` : '—');
 
         docsRows.push([
             dt.label,
@@ -647,9 +890,13 @@ export function buildHsnSacSheet(invoices: GstInvoiceRecord[]) {
                 sacMap[sac] = { code: sac, desc, uqc: 'NOS', qty: 0, total: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0 };
             }
 
+            const driver = toCurr(Number(inv.driver_stay_allowance || 0));
+            const toll = toCurr(Number(inv.extra_km_charges || 0));
+            const extraKmHr = toCurr(Number(inv.extra_hrs_charges || 0));
+            const discount = toCurr(Number(inv.discount || 0));
             const total = toCurr(inv.total_amount ?? 0);
             const tax = toCurr(inv.tax_total ?? 0);
-            const taxable = toCurr(inv.subtotal ?? (total - tax));
+            const taxable = toCurr(inv.subtotal ?? (total > 0 ? (total - tax - driver - toll - extraKmHr + discount) : 0));
 
             sacMap[sac].qty += 1;
             sacMap[sac].total = toCurr(sacMap[sac].total + total);
@@ -791,9 +1038,16 @@ export function buildClientGstLedgerSheet(invoices: GstInvoiceRecord[]) {
         const pos = inv.place_of_supply || 'Maharashtra';
         const isInterState = isInterStateSupply(inv);
 
-        const total = toCurr(inv.total_amount ?? 0);
+        const driver = toCurr(Number(inv.driver_stay_allowance || 0));
+        const toll = toCurr(Number(inv.extra_km_charges || 0));
+        const extraKmHr = toCurr(Number(inv.extra_hrs_charges || 0));
+        const discount = toCurr(Number(inv.discount || 0));
         const tax = toCurr(inv.tax_total ?? 0);
-        const taxable = toCurr(inv.subtotal ?? (total - tax));
+        const taxable = toCurr(inv.subtotal ?? (Number(inv.total_amount || 0) > 0 ? (Number(inv.total_amount) - tax - driver - toll - extraKmHr + discount) : 0));
+        let total = toCurr(inv.total_amount ?? 0);
+        if (!total && taxable > 0) {
+            total = toCurr(taxable + tax + driver + toll + extraKmHr - discount);
+        }
         const paid = toCurr(inv.amount_paid ?? 0);
         const balance = toCurr(inv.balance_due ?? (total - paid));
 
@@ -984,6 +1238,10 @@ export function exportDetailedCsvRegister(
         'SGST',
         'IGST',
         'Tax Total',
+        'Driver Allowance',
+        'Toll/Parking/Permit Charges',
+        'Extra Km/Hr Charges',
+        'Discount',
         'Total Amount',
         'Amount Paid',
         'Balance Due',
@@ -997,7 +1255,11 @@ export function exportDetailedCsvRegister(
             const isInterState = isInterStateSupply(r);
             const total = toCurr(r.total_amount ?? 0);
             const tax = toCurr(r.tax_total ?? 0);
-            const taxable = toCurr(r.subtotal ?? (total - tax));
+            const driver = toCurr(Number(r.driver_stay_allowance || 0));
+            const toll = toCurr(Number(r.extra_km_charges || 0));
+            const extraKmHr = toCurr(Number(r.extra_hrs_charges || 0));
+            const discount = toCurr(Number(r.discount || 0));
+            const taxable = toCurr(r.subtotal ?? (total - tax - driver - toll - extraKmHr + discount));
             const cgst = isInterState ? '0.00' : (tax / 2).toFixed(2);
             const sgst = isInterState ? '0.00' : (tax / 2).toFixed(2);
             const igst = isInterState ? tax.toFixed(2) : '0.00';
@@ -1016,6 +1278,10 @@ export function exportDetailedCsvRegister(
                 sgst,
                 igst,
                 tax.toFixed(2),
+                driver.toFixed(2),
+                toll.toFixed(2),
+                extraKmHr.toFixed(2),
+                discount.toFixed(2),
                 total.toFixed(2),
                 Number(r.amount_paid || 0).toFixed(2),
                 Number(r.balance_due || (total - Number(r.amount_paid || 0))).toFixed(2),

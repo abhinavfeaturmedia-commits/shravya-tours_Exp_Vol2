@@ -874,7 +874,25 @@ export const Bookings: React.FC = () => {
         }
     };
 
-    const handleGenerateInvoice = (booking: Booking) => {
+    const handleGenerateInvoice = async (booking: Booking) => {
+        try {
+            const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token') || localStorage.getItem('auth_token');
+            const res = await fetch(`/api/crud/invoices?booking_id=${booking.id}`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            if (res.ok) {
+                const invoices = await res.json();
+                const active = Array.isArray(invoices) ? invoices.filter((i: any) => i.status !== 'Void') : [];
+                if (active.length > 0) {
+                    const existingNo = active[0].invoice_no || active[0].id.substring(0, 8);
+                    toast.info(`Booking already has active Tax Invoice #${existingNo}. Opening existing record.`);
+                    navigate(`/admin/invoices/${active[0].id}`);
+                    return;
+                }
+            }
+        } catch (e) {
+            console.warn('[Bookings] Failed to check existing invoices for booking:', e);
+        }
         navigate(`/admin/invoices/new?booking_id=${booking.id}&type=Invoice`);
     };
 

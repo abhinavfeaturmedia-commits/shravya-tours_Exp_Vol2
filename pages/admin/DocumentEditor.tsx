@@ -330,10 +330,19 @@ function cleanHtmlToPlainText(html: string): string {
 
 /**
  * Robust date formatting for input[type="date"] (YYYY-MM-DD)
- * Guards against MySQL 1899/0000 bugs and timezone day-shifting.
+ * Guards against MySQL 1899/0000 bugs, timezone day-shifting,
+ * and JavaScript MM-DD vs DD-MM month/day inversion bugs.
  */
 export const formatLocalDate = (val: any): string => {
     if (!val) return '';
+    if (val instanceof Date) {
+        if (isNaN(val.getTime())) return '';
+        const y = val.getFullYear();
+        if (y < 1970) return '';
+        const m = String(val.getMonth() + 1).padStart(2, '0');
+        const d = String(val.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
     const str = String(val).trim();
     if (str.startsWith('1899') || str.startsWith('0000') || str.startsWith('1970-01-01')) return '';
 
@@ -342,25 +351,44 @@ export const formatLocalDate = (val: any): string => {
         return str;
     }
 
-    // If it's an ISO timestamp or Date object
-    const dateObj = new Date(val);
-    if (!isNaN(dateObj.getTime())) {
-        const y = dateObj.getFullYear();
-        if (y < 1970) return '';
-        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-        const day = String(dateObj.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
+    // PRIORITY: Check for DD-MM-YYYY or DD/MM/YYYY pattern explicitly BEFORE new Date()
+    // Native new Date("12-10-2026") parses as MM-DD-YYYY in V8/Chrome, inverting days and months!
+    const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (dmyMatch) {
+        const [, d, m, y] = dmyMatch;
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+
+    // ISO timestamp like 2026-10-11T18:30:00.000Z or with timezone offset
+    if (str.includes('T') || str.includes('Z')) {
+        const dateObj = new Date(str);
+        if (!isNaN(dateObj.getTime())) {
+            const y = dateObj.getFullYear();
+            if (y < 1970) return '';
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
     }
 
     // Try extracting YYYY-MM-DD pattern
     const isoMatch = str.match(/\b\d{4}-\d{2}-\d{2}\b/);
     if (isoMatch) return isoMatch[0];
 
-    // Try extracting DD-MM-YYYY or DD/MM/YYYY pattern
-    const dmyMatch = str.match(/\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b/);
-    if (dmyMatch) {
-        const [, d, m, y] = dmyMatch;
+    // Try extracting DD-MM-YYYY anywhere in string
+    const dmyLoose = str.match(/\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b/);
+    if (dmyLoose) {
+        const [, d, m, y] = dmyLoose;
         return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+
+    const fallbackDate = new Date(val);
+    if (!isNaN(fallbackDate.getTime())) {
+        const y = fallbackDate.getFullYear();
+        if (y < 1970) return '';
+        const m = String(fallbackDate.getMonth() + 1).padStart(2, '0');
+        const day = String(fallbackDate.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
     }
 
     return '';
@@ -440,6 +468,31 @@ export const DocumentEditor: React.FC = () => {
 
     const [nextSequencePreview, setNextSequencePreview] = useState<string>('');
     const [previewLoading, setPreviewLoading] = useState(false);
+    const [latestInvoiceMinDate, setLatestInvoiceMinDate] = useState<string>('');
+    const [latestInvoiceNo, setLatestInvoiceNo] = useState<string>('');
+    const [existingBookingInvoice, setExistingBookingInvoice] = useState<any>(null);
+
+    const checkBookingExistingInvoice = async (bId: string) => {
+        if (!bId) {
+            setExistingBookingInvoice(null);
+            return;
+        }
+        try {
+            const token = localStorage.getItem('shravya_jwt') || localStorage.getItem('token') || localStorage.getItem('auth_token');
+            const res = await fetch(`/api/crud/invoices?booking_id=${encodeURIComponent(bId)}`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            if (res.ok) {
+                const list = await res.json();
+                const active = Array.isArray(list) ? list.filter((i: any) => i.status !== 'Void' && i.id !== id) : [];
+                if (active.length > 0) {
+                    setExistingBookingInvoice(active[0]);
+                } else {
+                    setExistingBookingInvoice(null);
+                }
+            }
+        } catch (_) {}
+    };
 
     const fetchNextPreview = async (docType: string, dateStr?: string) => {
         if (docData.invoice_no && isEdit) return; // Already has official number
@@ -459,6 +512,8 @@ export const DocumentEditor: React.FC = () => {
             if (res.ok) {
                 const json = await res.json();
                 setNextSequencePreview(json.nextNumber || '');
+                if (json.latestIssueDate) setLatestInvoiceMinDate(json.latestIssueDate);
+                if (json.latestInvoiceNo) setLatestInvoiceNo(json.latestInvoiceNo);
             }
         } catch (e) {
             console.error('Failed to preview next sequence:', e);
@@ -726,6 +781,7 @@ export const DocumentEditor: React.FC = () => {
                 if (data.total_price || data.amount) {
                     setItems([{ id: generateId(), description: 'Tour Package', quantity: 1, total_days_km: '1', unit_price: Number(data.total_price || data.amount), tax_rate: 5, hsn_sac: fi.defaultSacCode || DEFAULT_SAC_CODE }]);
                 }
+                checkBookingExistingInvoice(bId);
             }
         } catch (e) { console.error(e); } finally { setLoading(false); }
     };
@@ -846,10 +902,18 @@ export const DocumentEditor: React.FC = () => {
 
                 const syncedTravelDates = data.travel_dates || (resolvedFrom ? `${resolvedFrom}${resolvedTo && resolvedTo !== resolvedFrom ? ' to ' + resolvedTo : ''}` : '');
 
+                const resolvedIssue = formatLocalDate(data.issue_date) || new Date().toISOString().split('T')[0];
+                let resolvedDue = formatLocalDate(data.due_date);
+                // Defensive normalization: if existing record has due_date < issue_date, normalize due_date = issue_date
+                if (resolvedDue && resolvedDue < resolvedIssue) {
+                    console.warn(`[DocumentEditor] Normalizing inverted due_date ${resolvedDue} to issue_date ${resolvedIssue}`);
+                    resolvedDue = resolvedIssue;
+                }
+
                 setDocData({
                     ...data,
-                    issue_date: formatLocalDate(data.issue_date) || new Date().toISOString().split('T')[0],
-                    due_date: formatLocalDate(data.due_date),
+                    issue_date: resolvedIssue,
+                    due_date: resolvedDue,
                     travel_date_from: resolvedFrom,
                     travel_date_to: resolvedTo,
                     travel_dates: syncedTravelDates,
@@ -1025,6 +1089,11 @@ export const DocumentEditor: React.FC = () => {
                 tax_rate: 0,
                 hsn_sac: fi.defaultSacCode || DEFAULT_SAC_CODE
             }]);
+        }
+        if (record.booking_id) {
+            checkBookingExistingInvoice(record.booking_id);
+        } else {
+            setExistingBookingInvoice(null);
         }
 
         toast.success(`Linked ${record.client_name} (${record.title_badge || 'Profile'})`);
@@ -1354,6 +1423,14 @@ export const DocumentEditor: React.FC = () => {
             const autoPaymentStatus = derivePaymentStatus(Number(docData.amount_paid || 0), Number(docData.advance_received || 0), totalAmount);
             const resolvedPaymentStatus = docData.payment_status || autoPaymentStatus;
 
+            // Strict date normalization: Due date can NEVER precede Issue date
+            const safeIssueDate = formatLocalDate(docData.issue_date) || new Date().toISOString().split('T')[0];
+            let safeDueDate = docData.due_date ? formatLocalDate(docData.due_date) : null;
+            if (safeDueDate && safeDueDate < safeIssueDate) {
+                console.warn(`[DocumentEditor handleSave] Auto-normalizing inverted due_date ${safeDueDate} to issue_date ${safeIssueDate}`);
+                safeDueDate = safeIssueDate;
+            }
+
             // ── FLOW A: ISSUE OFFICIAL SEQUENTIAL GST DOCUMENT ──
             if (generate && (!docData.invoice_no || docData.status === 'Draft')) {
                 let pfx = fi.invoicePrefix || 'ST';
@@ -1383,8 +1460,8 @@ export const DocumentEditor: React.FC = () => {
                     travel_dates: docData.travel_dates || (docData.travel_date_from ? `${formatLocalDate(docData.travel_date_from)}${docData.travel_date_to && docData.travel_date_to !== docData.travel_date_from ? ' to ' + formatLocalDate(docData.travel_date_to) : ''}` : null),
                     travel_date_from: docData.travel_date_from ? formatLocalDate(docData.travel_date_from) : null,
                     travel_date_to: docData.travel_date_to ? formatLocalDate(docData.travel_date_to) : null,
-                    due_date: docData.due_date ? formatLocalDate(docData.due_date) : null,
-                    issue_date: formatLocalDate(docData.issue_date) || new Date().toISOString().split('T')[0],
+                    due_date: safeDueDate,
+                    issue_date: safeIssueDate,
                     booking_id: docData.booking_id || null,
                     lead_id: docData.lead_id || null,
                     customer_id: docData.customer_id || null,
@@ -1415,8 +1492,14 @@ export const DocumentEditor: React.FC = () => {
                 });
 
                 if (!issueRes.ok) {
-                    const err = await issueRes.text();
-                    throw new Error(`Failed to issue document: ${err}`);
+                    let errMsg = '';
+                    try {
+                        const errJson = await issueRes.json();
+                        errMsg = errJson.error || errJson.message || JSON.stringify(errJson);
+                    } catch {
+                        errMsg = await issueRes.text();
+                    }
+                    throw new Error(errMsg || 'Failed to issue document');
                 }
 
                 const issueResult = await issueRes.json();
@@ -1475,8 +1558,8 @@ export const DocumentEditor: React.FC = () => {
                 status: generate ? (docData.status === 'Void' ? 'Void' : 'Sent') : (docData.status || 'Draft'),
                 payment_status: resolvedPaymentStatus,
                 amount_paid: docData.amount_paid || 0,
-                issue_date: isEdit ? (formatLocalDate(docData.issue_date) || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
-                due_date: docData.due_date ? formatLocalDate(docData.due_date) : null,
+                issue_date: isEdit ? (safeIssueDate) : new Date().toISOString().split('T')[0],
+                due_date: safeDueDate,
                 travel_date_from: docData.travel_date_from ? formatLocalDate(docData.travel_date_from) : null,
                 travel_date_to: docData.travel_date_to ? formatLocalDate(docData.travel_date_to) : null,
                 travel_dates: docData.travel_dates || (docData.travel_date_from ? `${formatLocalDate(docData.travel_date_from)}${docData.travel_date_to && docData.travel_date_to !== docData.travel_date_from ? ' to ' + formatLocalDate(docData.travel_date_to) : ''}` : null),
@@ -2321,20 +2404,93 @@ export const DocumentEditor: React.FC = () => {
                                         <input
                                             type="date"
                                             value={formatLocalDate(docData.issue_date) || formatLocalDate(new Date())}
-                                            onChange={e => { setDocData((prev: any) => ({...prev, issue_date: e.target.value})); setIsDirty(true); }}
+                                            min={(!docData.invoice_no && latestInvoiceMinDate) ? latestInvoiceMinDate : undefined}
+                                            onChange={e => {
+                                                const newIssue = e.target.value;
+                                                setDocData((prev: any) => {
+                                                    const curDue = formatLocalDate(prev.due_date);
+                                                    // Auto-bump due date if it was set earlier than the new issue date
+                                                    const adjustedDue = (curDue && curDue < newIssue) ? newIssue : prev.due_date;
+                                                    return {
+                                                        ...prev,
+                                                        issue_date: newIssue,
+                                                        due_date: adjustedDue
+                                                    };
+                                                });
+                                                setIsDirty(true);
+                                            }}
                                             disabled={isLocked && isEdit}
                                             className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
                                         />
                                         <span className="hidden print:inline font-bold text-[#091C3B]">{docData.issue_date ? new Date(formatLocalDate(docData.issue_date) + 'T00:00:00').toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}</span>
                                     </div>
+                                    {(!docData.invoice_no || docData.status === 'Draft') && latestInvoiceMinDate && formatLocalDate(docData.issue_date) < latestInvoiceMinDate && (
+                                        <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold block mt-1">
+                                            ⚠️ Latest #{latestInvoiceNo} dated {latestInvoiceMinDate}. GST sequence must be $\ge$ this date.
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
-                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">Due Date</span>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider">Due Date</span>
+                                        {(!isLocked || !isEdit) && (
+                                            <div className="flex items-center gap-1 print:hidden">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const base = formatLocalDate(docData.issue_date) || formatLocalDate(new Date());
+                                                        setDocData((prev: any) => ({ ...prev, due_date: base }));
+                                                        setIsDirty(true);
+                                                    }}
+                                                    className="text-[9px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700/70 hover:bg-orange-100 hover:text-orange-600 dark:hover:bg-orange-500/20 text-slate-600 dark:text-slate-300 font-bold transition-colors"
+                                                    title="Due on receipt (same as issue date)"
+                                                >
+                                                    Receipt
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const base = formatLocalDate(docData.issue_date) || formatLocalDate(new Date());
+                                                        const d = new Date(base + 'T00:00:00');
+                                                        d.setDate(d.getDate() + 3);
+                                                        setDocData((prev: any) => ({ ...prev, due_date: formatLocalDate(d) }));
+                                                        setIsDirty(true);
+                                                    }}
+                                                    className="text-[9px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700/70 hover:bg-orange-100 hover:text-orange-600 dark:hover:bg-orange-500/20 text-slate-600 dark:text-slate-300 font-bold transition-colors"
+                                                    title="+3 Days payment terms"
+                                                >
+                                                    +3d
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const base = formatLocalDate(docData.issue_date) || formatLocalDate(new Date());
+                                                        const d = new Date(base + 'T00:00:00');
+                                                        d.setDate(d.getDate() + 7);
+                                                        setDocData((prev: any) => ({ ...prev, due_date: formatLocalDate(d) }));
+                                                        setIsDirty(true);
+                                                    }}
+                                                    className="text-[9px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700/70 hover:bg-orange-100 hover:text-orange-600 dark:hover:bg-orange-500/20 text-slate-600 dark:text-slate-300 font-bold transition-colors"
+                                                    title="+7 Days payment terms"
+                                                >
+                                                    +7d
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                     <div className="flex items-center gap-1.5">
                                         <input
                                             type="date"
                                             value={formatLocalDate(docData.due_date) || ''}
-                                            onChange={e => { setDocData((prev: any) => ({...prev, due_date: e.target.value || null})); setIsDirty(true); }}
+                                            min={formatLocalDate(docData.issue_date) || formatLocalDate(new Date())}
+                                            onChange={e => {
+                                                const val = e.target.value || null;
+                                                const minIssue = formatLocalDate(docData.issue_date) || formatLocalDate(new Date());
+                                                // Prevent setting any due date earlier than issue date
+                                                const finalDue = (val && minIssue && val < minIssue) ? minIssue : val;
+                                                setDocData((prev: any) => ({...prev, due_date: finalDue}));
+                                                setIsDirty(true);
+                                            }}
                                             disabled={isLocked && isEdit}
                                             className="font-bold text-[#091C3B] dark:text-white bg-transparent border-0 outline-none text-xs p-0 w-full print:hidden disabled:opacity-60 cursor-pointer"
                                             placeholder="Not set"
@@ -2432,6 +2588,32 @@ export const DocumentEditor: React.FC = () => {
                     </div>
 
                     <div className="px-8 pb-10 space-y-6">
+                        {/* Booking Duplicate Billing Warning Banner */}
+                        {existingBookingInvoice && (
+                            <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm print:hidden animate-fade-in">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                                        <AlertCircle size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-bold text-amber-900 dark:text-amber-100">
+                                            Booking Already Billed Under Tax Invoice #{existingBookingInvoice.invoice_no || existingBookingInvoice.id?.substring(0, 8)}
+                                        </p>
+                                        <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                                            GST rules prohibit generating multiple active tax invoices for the same trip. We recommend editing or viewing the existing invoice instead.
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => navigate(`/admin/invoices/${existingBookingInvoice.id}`)}
+                                    className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap shadow-sm hover:scale-105 cursor-pointer"
+                                >
+                                    <FileText size={14} /> Open Invoice #{existingBookingInvoice.invoice_no || existingBookingInvoice.id?.substring(0, 8)}
+                                </button>
+                            </div>
+                        )}
+
                         {/* Billed By / Billed To Cards */}
                         <div className="flex flex-col md:flex-row items-stretch gap-6">
                             
