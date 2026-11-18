@@ -512,7 +512,7 @@ export const DocumentEditor: React.FC = () => {
             if (res.ok) {
                 const json = await res.json();
                 setNextSequencePreview(json.nextNumber || '');
-                if (json.latestIssueDate) setLatestInvoiceMinDate(json.latestIssueDate);
+                if (json.latestIssueDate) setLatestInvoiceMinDate(formatLocalDate(json.latestIssueDate));
                 if (json.latestInvoiceNo) setLatestInvoiceNo(json.latestInvoiceNo);
             }
         } catch (e) {
@@ -2424,9 +2424,9 @@ export const DocumentEditor: React.FC = () => {
                                         />
                                         <span className="hidden print:inline font-bold text-[#091C3B]">{docData.issue_date ? new Date(formatLocalDate(docData.issue_date) + 'T00:00:00').toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}</span>
                                     </div>
-                                    {(!docData.invoice_no || docData.status === 'Draft') && latestInvoiceMinDate && formatLocalDate(docData.issue_date) < latestInvoiceMinDate && (
+                                    {(!docData.invoice_no || docData.status === 'Draft') && latestInvoiceMinDate && (formatLocalDate(docData.issue_date) || formatLocalDate(new Date())) < latestInvoiceMinDate && (
                                         <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold block mt-1">
-                                            ⚠️ Latest #{latestInvoiceNo} dated {latestInvoiceMinDate}. GST sequence must be $\ge$ this date.
+                                            ⚠️ Latest #{latestInvoiceNo} dated {new Date(latestInvoiceMinDate + 'T00:00:00').toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}. GST sequence date must be on or after this date.
                                         </span>
                                     )}
                                 </div>

@@ -6888,8 +6888,33 @@ app.get('/api/invoices/stats', authMiddleware, async (req, res) => {
 
 // ─── GST Invoicing Helpers & Sequential Handlers ───
 
+// Robust location-agnostic calendar date normalizer (YYYY-MM-DD)
+function formatYMD(dateInput) {
+    if (!dateInput) return null;
+    if (typeof dateInput === 'string') {
+        const trimmed = dateInput.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+        const dmy = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+        if (dmy) {
+            return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+        }
+        const isoMatch = trimmed.match(/\b\d{4}-\d{2}-\d{2}\b/);
+        if (isoMatch) return isoMatch[0];
+    }
+    const d = new Date(dateInput);
+    if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        if (y < 1970) return null;
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+    return null;
+}
+
 function getIndianFinancialYear(dateInput) {
-    const d = dateInput ? new Date(dateInput) : new Date();
+    const ymd = formatYMD(dateInput);
+    const d = ymd ? new Date(ymd + 'T00:00:00') : (dateInput ? new Date(dateInput) : new Date());
     const validDate = isNaN(d.getTime()) ? new Date() : d;
     const month = validDate.getMonth(); // 0-indexed: 0=Jan, 3=Apr, 11=Dec
     const year = validDate.getFullYear();
@@ -6932,12 +6957,15 @@ app.get('/api/invoices/next-preview', authMiddleware, async (req, res) => {
         const nextSeq = currentSeq + 1;
         const nextNumber = formatGstInvoiceNumber(prefix, fy, nextSeq);
 
-        // Fetch latest active invoice in this FY to guide chronological constraints
+        // Fetch latest active invoice in this FY to guide chronological constraints (explicit DATE_FORMAT prevents timezone drift)
         const [latest] = await pool.query(
-            'SELECT invoice_no, sequence_number, issue_date FROM invoices WHERE document_type = ? AND financial_year = ? AND sequence_number IS NOT NULL AND status != "Void" ORDER BY sequence_number DESC LIMIT 1',
+            `SELECT invoice_no, sequence_number, DATE_FORMAT(issue_date, '%Y-%m-%d') as issue_date 
+             FROM invoices 
+             WHERE document_type = ? AND financial_year = ? AND sequence_number IS NOT NULL AND status != "Void" 
+             ORDER BY sequence_number DESC LIMIT 1`,
             [docType, fy]
         );
-        const latestIssueDate = (latest.length > 0 && latest[0].issue_date) ? String(latest[0].issue_date).split('T')[0] : null;
+        const latestIssueDate = (latest.length > 0 && latest[0].issue_date) ? formatYMD(latest[0].issue_date) : null;
         const latestInvoiceNo = (latest.length > 0) ? latest[0].invoice_no : null;
 
         res.json({
@@ -6966,7 +6994,7 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
         const body = req.body || {};
         const invoiceId = body.id || crypto.randomUUID();
         const docType = body.document_type || 'Invoice';
-        const issueDate = body.issue_date || new Date().toISOString().split('T')[0];
+        const issueDate = formatYMD(body.issue_date) || new Date().toISOString().split('T')[0];
         const customPrefix = body.custom_prefix || 'ST';
         const fy = getIndianFinancialYear(issueDate);
         const prefix = getDocPrefix(docType, customPrefix);
@@ -7005,16 +7033,21 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
 
             // Guard 2: Chronological Sequence Check (GST Rule 46) — An invoice sequence cannot be dated earlier than the latest issued invoice in that series
             const [latestInvoice] = await conn.query(
-                'SELECT invoice_no, sequence_number, issue_date FROM invoices WHERE document_type = ? AND financial_year = ? AND sequence_number IS NOT NULL AND status != "Void" ORDER BY sequence_number DESC LIMIT 1',
+                `SELECT invoice_no, sequence_number, DATE_FORMAT(issue_date, '%Y-%m-%d') as issue_date 
+                 FROM invoices 
+                 WHERE document_type = ? AND financial_year = ? AND sequence_number IS NOT NULL AND status != "Void" 
+                 ORDER BY sequence_number DESC LIMIT 1`,
                 [docType, fy]
             );
             if (latestInvoice.length > 0 && latestInvoice[0].issue_date) {
-                const latestDateStr = String(latestInvoice[0].issue_date).split('T')[0];
-                const newIssueDateStr = String(issueDate).split('T')[0];
-                if (newIssueDateStr < latestDateStr) {
+                const latestDateStr = formatYMD(latestInvoice[0].issue_date);
+                const newIssueDateStr = formatYMD(issueDate);
+                if (latestDateStr && newIssueDateStr && newIssueDateStr < latestDateStr) {
                     await conn.rollback();
+                    const formattedLatest = new Date(latestDateStr + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                    const formattedNew = new Date(newIssueDateStr + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
                     return res.status(422).json({
-                        error: `Chronological Sequence Violation: The latest issued invoice (${latestInvoice[0].invoice_no}) is dated ${latestDateStr}. Official GST rules require consecutive invoice dates to move forward in time. You cannot date this new invoice (${newIssueDateStr}) earlier than ${latestDateStr}.`,
+                        error: `Chronological Sequence Violation: The latest issued invoice (${latestInvoice[0].invoice_no}) is dated ${formattedLatest} (${latestDateStr}). Official GST rules require consecutive invoice dates to move forward in time. You cannot date this new invoice (${formattedNew}) earlier than ${formattedLatest}.`,
                         latestInvoice: latestInvoice[0],
                         requiredMinDate: latestDateStr
                     });
@@ -7093,10 +7126,10 @@ app.post('/api/invoices/issue', authMiddleware, async (req, res) => {
             extra_hrs_charges: Number(body.extra_hrs_charges || 0),
             advance_received: Number(body.advance_received || 0),
             balance_due: Number(body.balance_due !== undefined ? body.balance_due : (Number(body.total_amount || 0) - Number(body.amount_paid || 0))),
-            issue_date: String(issueDate).split('T')[0],
+            issue_date: formatYMD(issueDate) || new Date().toISOString().split('T')[0],
             due_date: (() => {
-                const rawDue = body.due_date ? String(body.due_date).split('T')[0] : null;
-                const rawIssue = String(issueDate).split('T')[0];
+                const rawDue = body.due_date ? formatYMD(body.due_date) : null;
+                const rawIssue = formatYMD(issueDate) || new Date().toISOString().split('T')[0];
                 if (rawDue && rawDue < rawIssue) {
                     console.warn(`[Invoice Issue Guard] Inverted due_date ${rawDue} < issue_date ${rawIssue}. Normalizing to issue_date.`);
                     return rawIssue;
@@ -8467,9 +8500,9 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
                 }
             }
             if (body.due_date && body.issue_date) {
-                const dDue = String(body.due_date).split('T')[0];
-                const dIssue = String(body.issue_date).split('T')[0];
-                if (dDue < dIssue) {
+                const dDue = formatYMD(body.due_date);
+                const dIssue = formatYMD(body.issue_date);
+                if (dDue && dIssue && dDue < dIssue) {
                     console.warn(`[Invoice Guard] Inverted due_date ${dDue} < issue_date ${dIssue} on insert. Normalizing to issue_date.`);
                     body.due_date = dIssue;
                 }
@@ -8894,18 +8927,18 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
                 }
             }
             if (body.due_date && body.issue_date) {
-                const dDue = String(body.due_date).split('T')[0];
-                const dIssue = String(body.issue_date).split('T')[0];
-                if (dDue < dIssue) {
+                const dDue = formatYMD(body.due_date);
+                const dIssue = formatYMD(body.issue_date);
+                if (dDue && dIssue && dDue < dIssue) {
                     console.warn(`[Invoice Guard] Inverted due_date ${dDue} < issue_date ${dIssue} on update. Normalizing to issue_date.`);
                     body.due_date = dIssue;
                 }
             } else if (body.due_date && !body.issue_date) {
-                const [cur] = await pool.query('SELECT issue_date FROM invoices WHERE id = ?', [id]);
+                const [cur] = await pool.query("SELECT DATE_FORMAT(issue_date, '%Y-%m-%d') as issue_date FROM invoices WHERE id = ?", [id]);
                 if (cur.length > 0 && cur[0].issue_date) {
-                    const curIssue = String(cur[0].issue_date).split('T')[0];
-                    const dDue = String(body.due_date).split('T')[0];
-                    if (dDue < curIssue) {
+                    const curIssue = formatYMD(cur[0].issue_date);
+                    const dDue = formatYMD(body.due_date);
+                    if (dDue && curIssue && dDue < curIssue) {
                         body.due_date = curIssue;
                     }
                 }
