@@ -114,6 +114,7 @@ interface ItineraryContextType {
     packageMarkupFlat: number;
     dayMeta: Record<number, DayMeta>;
     faqs: FAQItem[];
+    extraBuilderData: Record<string, any>;
 
     // Computed
     subtotal: number;
@@ -128,6 +129,8 @@ interface ItineraryContextType {
     // Actions
     setStep: (step: number) => void;
     updateTripDetails: (details: Partial<TripDetails>) => void;
+    addDay: () => void;
+    removeDay: (dayToRemove: number) => void;
     addItem: (item: Omit<ItineraryItem, 'sellPrice'>) => void;
     updateItem: (id: string, updates: Partial<Omit<ItineraryItem, 'sellPrice'>>) => void;
     removeItem: (id: string) => void;
@@ -164,11 +167,35 @@ export const useItinerary = () => {
 
 // --- Provider ---
 
+// Helper to read ?edit=<id> from browser URL (supports BrowserRouter & HashRouter)
+const getUrlEditId = (): string | null => {
+    try {
+        const searchParams = new URLSearchParams(window.location.search);
+        const fromSearch = searchParams.get('edit');
+        if (fromSearch) return fromSearch;
+        const hash = window.location.hash || '';
+        const qIdx = hash.indexOf('?');
+        if (qIdx !== -1) {
+            return new URLSearchParams(hash.slice(qIdx + 1)).get('edit');
+        }
+    } catch {
+        // Ignore URL parsing errors
+    }
+    return null;
+};
+
 export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const savedDraft = useMemo(() => {
         try {
             const draft = localStorage.getItem('itinerary_draft');
-            return draft ? JSON.parse(draft) : null;
+            if (!draft) return null;
+            const parsed = JSON.parse(draft);
+            const urlEditId = getUrlEditId();
+            // Never hydrate a stale draft belonging to a different package when ?edit=<id> is in the URL
+            if (urlEditId && String(parsed?.editPackageId || '') !== String(urlEditId)) {
+                return null;
+            }
+            return parsed;
         } catch {
             return null;
         }
@@ -183,6 +210,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [packageMarkupFlat, setPackageMarkupFlat] = useState<number>(Number(savedDraft?.packageMarkupFlat) || 0);
     const [editPackageId, setEditPackageId] = useState<string | undefined>(savedDraft?.editPackageId || undefined);
     const [faqs, setFaqs] = useState<FAQItem[]>(savedDraft?.faqs || []);
+    const [extraBuilderData, setExtraBuilderData] = useState<Record<string, any>>(savedDraft?.extraBuilderData || {});
 
     const [tripDetails, setTripDetails] = useState<TripDetails>(savedDraft?.tripDetails || {
         title: '',
@@ -207,13 +235,17 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         extraBedNotes: '',
     });
 
-    // Auto-save to localStorage
+    // Auto-save to localStorage (skip writing mismatched draft while ?edit=<id> is loading)
     useEffect(() => {
+        const urlEditId = getUrlEditId();
+        if (urlEditId && String(editPackageId || '') !== String(urlEditId)) {
+            return;
+        }
         const draft = {
-            step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails, faqs
+            step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails, faqs, extraBuilderData
         };
         localStorage.setItem('itinerary_draft', JSON.stringify(draft));
-    }, [step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails, faqs]);
+    }, [step, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, editPackageId, tripDetails, faqs, extraBuilderData]);
 
     // Currency helpers (strict number coercion to banish NaN)
     const convertCurrency = useCallback((amountInINR: number | string): number => {
@@ -282,6 +314,127 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             // Auto-derive nights from days and vice versa (Fix 1.3)
             if (details.days !== undefined && details.nights === undefined) next.nights = Math.max(0, next.days - 1);
             if (details.nights !== undefined && details.days === undefined) next.days = next.nights + 1;
+            return next;
+        });
+    }, []);
+
+    // Safely add 1 day (+1 night) while keeping existing destination legs and scheduled items intact
+    const addDay = useCallback(() => {
+        setTripDetails(prev => {
+            const currentDays = Math.max(1, Number(prev.days) || 1);
+            const currentNights = prev.nights !== undefined ? Math.max(0, Number(prev.nights)) : Math.max(0, currentDays - 1);
+            const nextNights = currentNights + 1;
+            const nextDays = nextNights + 1;
+
+            const currentDests = Array.isArray(prev.destinations) ? prev.destinations : [];
+            let nextDests: TripDestination[];
+            if (currentDests.length > 0) {
+                nextDests = currentDests.map((d, idx) =>
+                    idx === currentDests.length - 1
+                        ? { ...d, nights: Math.max(0, Number(d.nights) || 0) + 1 }
+                        : d
+                );
+            } else {
+                nextDests = [{
+                    locationId: prev.destination || '',
+                    nights: nextNights,
+                    order: 0
+                }];
+            }
+
+            return {
+                ...prev,
+                destinations: nextDests,
+                nights: nextNights,
+                days: nextDays,
+            };
+        });
+    }, []);
+
+    // Safely remove a specific day: drops items/meta for that day, shifts later days down by 1, and syncs destination leg nights
+    const removeDay = useCallback((dayToRemove: number) => {
+        setTripDetails(prev => {
+            const currentDays = Math.max(1, Number(prev.days) || 1);
+            if (currentDays <= 1) return prev;
+
+            const currentNights = prev.nights !== undefined ? Math.max(0, Number(prev.nights)) : Math.max(0, currentDays - 1);
+            const currentDests = Array.isArray(prev.destinations) ? [...prev.destinations] : [];
+
+            let nextDests = currentDests;
+            let nextNights = Math.max(0, currentNights - 1);
+            let nextDestination = prev.destination;
+
+            if (currentDests.length > 0) {
+                // Locate which destination leg owns dayToRemove
+                let cursorDay = 1;
+                let targetLegIdx = -1;
+                for (let i = 0; i < currentDests.length; i++) {
+                    const legNights = Math.max(0, Number(currentDests[i].nights) || 0);
+                    const legSpan = legNights === 0 ? 1 : legNights;
+                    if (dayToRemove >= cursorDay && dayToRemove < cursorDay + legSpan) {
+                        targetLegIdx = i;
+                        break;
+                    }
+                    cursorDay += legSpan;
+                }
+                if (targetLegIdx === -1) {
+                    // Departure day (after all night spans): reduce the last leg with nights > 0
+                    for (let i = currentDests.length - 1; i >= 0; i--) {
+                        if ((Number(currentDests[i].nights) || 0) > 0) {
+                            targetLegIdx = i;
+                            break;
+                        }
+                    }
+                    if (targetLegIdx === -1) targetLegIdx = currentDests.length - 1;
+                }
+
+                const targetLeg = currentDests[targetLegIdx];
+                const targetNights = Math.max(0, Number(targetLeg.nights) || 0);
+
+                if (targetNights > 1) {
+                    nextDests = currentDests.map((d, idx) =>
+                        idx === targetLegIdx ? { ...d, nights: targetNights - 1 } : d
+                    );
+                } else if (currentDests.length > 1) {
+                    // Remove exhausted 1N / 0N leg in a multi-leg itinerary and re-index order
+                    nextDests = currentDests
+                        .filter((_, idx) => idx !== targetLegIdx)
+                        .map((d, idx) => ({ ...d, order: idx }));
+                    if (targetLegIdx === 0 && nextDests.length > 0) {
+                        nextDestination = nextDests[0].locationId;
+                    }
+                } else {
+                    // Single remaining leg going from 1N -> 0N (1-Day Excursion)
+                    nextDests = [{ ...targetLeg, nights: 0 }];
+                }
+
+                nextNights = nextDests.reduce((acc, d) => acc + Math.max(0, Number(d.nights) || 0), 0);
+            }
+
+            const nextDays = nextNights === 0 ? 1 : nextNights + 1;
+
+            return {
+                ...prev,
+                destination: nextDestination,
+                destinations: nextDests,
+                nights: nextNights,
+                days: nextDays,
+            };
+        });
+
+        setItems(prev =>
+            prev
+                .filter(item => item.day !== dayToRemove)
+                .map(item => (item.day > dayToRemove ? { ...item, day: item.day - 1 } : item))
+        );
+
+        setDayMeta(prev => {
+            const next: Record<number, DayMeta> = {};
+            Object.entries(prev).forEach(([k, val]) => {
+                const d = Number(k);
+                if (d < dayToRemove) next[d] = val;
+                else if (d > dayToRemove) next[d - 1] = val;
+            });
             return next;
         });
     }, []);
@@ -443,12 +596,51 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
 
     const loadPackage = useCallback((pkg: any, masterLocations?: any[]) => {
         setEditPackageId(pkg.id);
+
+        const resolveLocId = (val?: string) => {
+            if (!val) return '';
+            const found = masterLocations?.find(
+                (l: any) => String(l.id) === String(val) || (l.name && l.name.toLowerCase() === String(val).toLowerCase())
+            );
+            return found?.id ? String(found.id) : String(val);
+        };
+
         if (pkg.builderData) {
+            const td = pkg.builderData.tripDetails || {};
+            const safeDays = Math.max(1, Number(td.days) || Number(pkg.days) || 1);
+            const safeNights = td.nights !== undefined
+                ? Math.max(0, Number(td.nights))
+                : Math.max(0, safeDays - 1);
+            const resolvedPrimaryDest = resolveLocId(td.destination || pkg.location);
+
+            let normalizedDestinations: TripDestination[] = Array.isArray(td.destinations)
+                ? td.destinations.map((d: any, idx: number) => ({
+                    locationId: resolveLocId(d.locationId),
+                    nights: Math.max(0, Number(d.nights) ?? 0),
+                    order: d.order ?? idx,
+                }))
+                : [];
+
+            // Defensive recovery: ensure destination legs are populated if missing/empty
+            if (normalizedDestinations.length === 0 && (resolvedPrimaryDest || safeNights > 0)) {
+                normalizedDestinations = [{
+                    locationId: resolvedPrimaryDest,
+                    nights: safeNights,
+                    order: 0,
+                }];
+            }
+
             // Fix 1.4: ensure gallery is always an array
             setTripDetails({
-                ...pkg.builderData.tripDetails,
-                termsAndConditions: pkg.builderData.tripDetails?.termsAndConditions || pkg.terms_and_conditions || '',
-                gallery: pkg.builderData.tripDetails?.gallery ?? [],
+                ...td,
+                title: td.title || pkg.title || '',
+                startDate: td.startDate || new Date().toISOString().split('T')[0],
+                days: safeDays,
+                nights: safeNights,
+                destination: resolvedPrimaryDest || normalizedDestinations[0]?.locationId || '',
+                destinations: normalizedDestinations,
+                termsAndConditions: td.termsAndConditions || pkg.terms_and_conditions || '',
+                gallery: td.gallery ?? [],
             });
             // Fix 1.1: recalculate sellPrice — master prices may have changed since last save
             setItems((pkg.builderData.items || []).map((item: any) => ({
@@ -466,48 +658,109 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
             setPackageMarkupPercent(Number(pkg.builderData.packageMarkupPercent) || 0);
             setPackageMarkupFlat(Number(pkg.builderData.packageMarkupFlat) || 0);
             setFaqs(pkg.builderData.faqs || []);
-        } else {
-            // Legacy migration — best effort
-            // Fix 2.5: resolve location name → ID (pkg.location is a name string in legacy packages)
-            const resolvedDestId = masterLocations?.find(
-                (l: any) => l.name === pkg.location
-            )?.id || pkg.location || '';
 
+            // Preserve any extra builderData keys (e.g. ageLimits, cancellationPolicy, paymentPolicy)
+            const {
+                tripDetails: _td,
+                items: _it,
+                dayMeta: _dm,
+                currency: _cur,
+                taxConfig: _tc,
+                packageMarkupPercent: _pmp,
+                packageMarkupFlat: _pmf,
+                faqs: _f,
+                ...restBuilderData
+            } = pkg.builderData;
+            setExtraBuilderData(restBuilderData || {});
+        } else {
+            // Legacy / fallback migration — best effort (also recovers previously-cloned packages missing builderData)
+            const resolvedDestId = resolveLocId(pkg.location);
             const guestsMatch = pkg.groupSize?.match(/(\d+)/);
             const guests = guestsMatch ? parseInt(guestsMatch[1]) : 2;
+            const safeDays = Math.max(
+                1,
+                Number(pkg.days) || (Array.isArray(pkg.itinerary) && pkg.itinerary.length > 0 ? pkg.itinerary.length : 1)
+            );
+            const safeNights = Math.max(0, safeDays - 1);
+
+            const fallbackDestinations: TripDestination[] = (resolvedDestId || safeNights > 0)
+                ? [{ locationId: resolvedDestId, nights: safeNights, order: 0 }]
+                : [];
 
             setTripDetails({
-                title: pkg.title,
+                title: pkg.title || '',
                 startDate: new Date().toISOString().split('T')[0],
-                days: pkg.days,
-                nights: Math.max(0, pkg.days - 1),
+                days: safeDays,
+                nights: safeNights,
                 destination: resolvedDestId,
+                destinations: fallbackDestinations,
                 coverImage: pkg.image || 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=2070&auto=format&fit=crop',
                 gallery: Array.isArray(pkg.gallery) ? pkg.gallery.filter((u: string) => u && u !== pkg.image) : [],
                 adults: guests,
                 children: 0,
                 included: pkg.included || ['Premium accommodation', 'Daily breakfast & dinner', 'Private transfers', 'Entry tickets', 'Expert guide'],
                 notIncluded: pkg.notIncluded || ['Airfare (International)', 'Personal expenses', 'Camera fees', 'Optional activities', 'Insurance'],
-                termsAndConditions: pkg.terms_and_conditions || ''
+                termsAndConditions: pkg.terms_and_conditions || '',
+                roomSharing: 'Double',
+                mealPlanCode: 'CP',
+                roomsCount: Math.max(1, Math.ceil(guests / 2)),
             });
 
-            const newItems: ItineraryItem[] = (pkg.itinerary || []).map((dayObj: any) => ({
-                id: `mig-${Date.now()}-${dayObj.day}-${Math.random().toString(36).slice(2,5)}`,
-                type: 'activity',
-                day: dayObj.day,
-                title: dayObj.title || `Day ${dayObj.day}`,
-                description: dayObj.desc,
-                netCost: 0,
-                baseMarkupPercent: 0,
-                extraMarkupFlat: 0,
-                sellPrice: 0,
-                quantity: guests,
-                order: 0
-            }));
+            const restoredDayMeta: Record<number, any> = {};
+            const newItems: ItineraryItem[] = [];
+            (pkg.itinerary || []).forEach((dayObj: any, idx: number) => {
+                const dayNum = Number(dayObj.day) || (idx + 1);
+                if (dayObj.title) {
+                    restoredDayMeta[dayNum] = { theme: dayObj.title };
+                }
+                if (Array.isArray(dayObj.items) && dayObj.items.length > 0) {
+                    dayObj.items.forEach((rawItem: any, itemIdx: number) => {
+                        const { masterData, ...safeItem } = rawItem || {};
+                        const netCost = Number(safeItem.netCost) || 0;
+                        const baseMarkupPercent = Number(safeItem.baseMarkupPercent) || 0;
+                        const extraMarkupFlat = Number(safeItem.extraMarkupFlat) || 0;
+                        const quantity = Number(safeItem.quantity) || 1;
+                        newItems.push({
+                            ...safeItem,
+                            id: safeItem.id || `mig-${Date.now()}-${dayNum}-${itemIdx}-${Math.random().toString(36).slice(2, 5)}`,
+                            day: dayNum,
+                            netCost,
+                            baseMarkupPercent,
+                            extraMarkupFlat,
+                            quantity,
+                            sellPrice: calculateSellPrice(netCost, baseMarkupPercent, extraMarkupFlat, quantity),
+                            order: safeItem.order ?? itemIdx,
+                        });
+                    });
+                } else {
+                    newItems.push({
+                        id: `mig-${Date.now()}-${dayNum}-${Math.random().toString(36).slice(2, 5)}`,
+                        type: 'activity',
+                        day: dayNum,
+                        title: dayObj.title || `Day ${dayNum}`,
+                        description: dayObj.desc,
+                        netCost: 0,
+                        baseMarkupPercent: 0,
+                        extraMarkupFlat: 0,
+                        sellPrice: 0,
+                        quantity: guests,
+                        order: 0
+                    });
+                }
+            });
+
+            const restoredSubtotal = newItems
+                .filter(i => i.type !== 'note' && i.type !== 'other')
+                .reduce((sum, i) => sum + (Number(i.sellPrice) || 0), 0);
+
             setItems(newItems);
-            setPackageMarkupFlat(Number(pkg.price) || 0);
+            setDayMeta(restoredDayMeta);
+            setCurrency('INR');
+            setTaxConfig(DEFAULT_TAX_CONFIG);
+            setPackageMarkupFlat(restoredSubtotal > 0 ? Math.max(0, (Number(pkg.price) || 0) - restoredSubtotal) : (Number(pkg.price) || 0));
             setPackageMarkupPercent(0);
             setFaqs([]);
+            setExtraBuilderData({});
         }
     }, []);
 
@@ -518,6 +771,7 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         setDayMeta({});
         setEditPackageId(undefined);
         setFaqs([]);
+        setExtraBuilderData({});
         setTripDetails({
             title: '',
             startDate: new Date().toISOString().split('T')[0],
@@ -558,6 +812,8 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         grandTotal,
         editPackageId,
         updateTripDetails,
+        addDay,
+        removeDay,
         addItem,
         updateItem,
         removeItem,
@@ -577,11 +833,12 @@ export const ItineraryProvider: React.FC<{ children: ReactNode }> = ({ children 
         convertCurrency,
         dayMeta,
         faqs,
-        setFaqs
+        setFaqs,
+        extraBuilderData
     }), [step, tripDetails, items, currency, taxConfig, packageMarkupPercent, packageMarkupFlat,
         subtotal, packageMarkupAmount, taxAmount, grandTotal, editPackageId,
-        updateTripDetails, addItem, updateItem, removeItem, replaceAllItems, reorderItems, duplicateDay,
-        getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, clearDraft, formatCurrency, convertCurrency, dayMeta, setEditPackageId, faqs]);
+        updateTripDetails, addDay, removeDay, addItem, updateItem, removeItem, replaceAllItems, reorderItems, duplicateDay,
+        getItemsForDay, updateTaxConfig, setPackageMarkup, loadPackage, clearDraft, formatCurrency, convertCurrency, dayMeta, setEditPackageId, faqs, extraBuilderData]);
 
     return (
         <ItineraryContext.Provider value={value}>

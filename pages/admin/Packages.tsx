@@ -9,11 +9,13 @@ import { ActionMenu } from '../../components/ui/ActionMenu';
 import { getLocationName } from '../../utils/packageUtils';
 import { copyToClipboard } from '../../utils/clipboard';
 import { toast } from '../../components/ui/Toast';
+import { api } from '../../src/lib/api';
 
 // Extracted Component with React.memo to prevent unnecessary re-renders of the entire list when Edit Modal opens
 const PackageCard = React.memo(({
     pkg,
     onEdit,
+    onOpenBuilder,
     onToggleStatus,
     onClone,
     onDelete,
@@ -25,6 +27,7 @@ const PackageCard = React.memo(({
 }: {
     pkg: Package,
     onEdit: (pkg: Package) => void,
+    onOpenBuilder: (id: string) => void,
     onToggleStatus: (pkg: Package) => void,
     onClone: (pkg: Package) => void,
     onDelete: (id: string) => void,
@@ -138,10 +141,13 @@ const PackageCard = React.memo(({
                     </button>
                 )}
                 <ActionMenu>
-                    <button onClick={() => onEdit(pkg)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
+                    <button type="button" onClick={() => onOpenBuilder(pkg.id)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors w-full text-left font-medium">
+                        <span className="material-symbols-outlined text-[18px]">edit_road</span> Edit in Itinerary Builder
+                    </button>
+                    <button type="button" onClick={() => onEdit(pkg)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
                         <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Quick Edit
                     </button>
-                    <button onClick={() => onClone(pkg)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-colors w-full text-left font-medium">
+                    <button type="button" onClick={() => onClone(pkg)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-colors w-full text-left font-medium">
                         <span className="material-symbols-outlined text-[18px]">content_copy</span> Clone Package
                     </button>
                     <button onClick={() => onCopyLink(pkg.id)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
@@ -283,6 +289,11 @@ export const AdminPackages: React.FC = () => {
         }
     };
 
+    const handleOpenInBuilder = useCallback((id: string) => {
+        try { localStorage.removeItem('itinerary_draft'); } catch {}
+        navigate(`/admin/itinerary-builder?edit=${id}`);
+    }, [navigate]);
+
     const handleOpenCloneModal = useCallback((pkg: Package) => {
         setPackageToClone(pkg);
         setCloneTitle(`${pkg.title} (Copy)`);
@@ -296,54 +307,120 @@ export const AdminPackages: React.FC = () => {
         setIsCloning(true);
         try {
             const finalTitle = cloneTitle.trim() || `${packageToClone.title} (Copy)`;
-            const finalPrice = typeof clonePrice === 'string' ? (parseFloat(clonePrice) || 0) : Number(clonePrice);
+            const parsedPrice = typeof clonePrice === 'string' ? parseFloat(clonePrice) : Number(clonePrice);
+
+            // Fetch full package record (the global packages list omits builder_data for performance)
+            const fullSource = await api.getPackageById(packageToClone.id).catch(() => null);
+            const sourcePkg = fullSource || packageToClone;
+            const finalPrice = !isNaN(parsedPrice) && parsedPrice >= 0 ? parsedPrice : (Number(sourcePkg.price) || 0);
+
+            // Sanitize DATETIME value for MySQL compatibility (avoid raw ISO 'Z' string errors)
+            const formatMysqlDateTime = (val?: string | null): string | undefined => {
+                if (!val) return undefined;
+                const d = new Date(val);
+                if (isNaN(d.getTime())) return undefined;
+                return d.toISOString().slice(0, 19).replace('T', ' ');
+            };
+
+            // Deep copy builderData, sync cloned title, reset client linkage, and ensure destination legs exist
+            const clonedBuilderData = sourcePkg.builderData
+                ? JSON.parse(JSON.stringify(sourcePkg.builderData))
+                : null;
+            if (clonedBuilderData?.tripDetails) {
+                const td = clonedBuilderData.tripDetails;
+                td.title = finalTitle;
+                td.clientName = '';
+                td.clientId = '';
+                td.itineraryStatus = 'Draft';
+
+                const safeDays = Math.max(1, Number(td.days) || Number(sourcePkg.days) || 1);
+                const safeNights = td.nights !== undefined ? Math.max(0, Number(td.nights)) : Math.max(0, safeDays - 1);
+                td.days = safeDays;
+                td.nights = safeNights;
+
+                if (!Array.isArray(td.destinations) || td.destinations.length === 0) {
+                    const fallbackLoc = td.destination || sourcePkg.location || '';
+                    if (fallbackLoc || safeNights > 0) {
+                        td.destinations = [{ locationId: fallbackLoc, nights: safeNights, order: 0 }];
+                    }
+                }
+
+                // If admin customized the price in the Clone modal, reflect it in flat markup when feasible
+                const origPriceNum = Number(sourcePkg.price) || 0;
+                if (Math.abs(finalPrice - origPriceNum) > 0.01) {
+                    const itemsSubtotal = (Array.isArray(clonedBuilderData.items) ? clonedBuilderData.items : [])
+                        .filter((i: any) => i.type !== 'note' && i.type !== 'other')
+                        .reduce((sum: number, item: any) => {
+                            const net = Number(item.netCost) || 0;
+                            const pct = Number(item.baseMarkupPercent) || 0;
+                            const flat = Number(item.extraMarkupFlat) || 0;
+                            const qty = Number(item.quantity) || 1;
+                            const sell = Math.round((net * (1 + pct / 100) + flat) * qty * 100) / 100;
+                            return sum + sell;
+                        }, 0);
+                    const tc = clonedBuilderData.taxConfig || {};
+                    const taxRate = tc.gstOnTotal
+                        ? ((Number(tc.cgstPercent) || 0) + (Number(tc.sgstPercent) || 0) + (Number(tc.igstPercent) || 0) + (Number(tc.tcsPercent) || 0)) / 100
+                        : 0;
+                    const targetPreTax = taxRate > 0 ? finalPrice / (1 + taxRate) : finalPrice;
+                    const pctMarkup = Math.round(itemsSubtotal * ((Number(clonedBuilderData.packageMarkupPercent) || 0) / 100));
+                    const neededFlat = Math.round((targetPreTax - itemsSubtotal - pctMarkup) * 100) / 100;
+                    if (neededFlat >= 0) {
+                        clonedBuilderData.packageMarkupFlat = neededFlat;
+                    }
+                }
+            }
 
             // Deep copy all data structures to prevent shared reference mutations
             const newPackageData: Package = {
                 id: undefined as any, // backend generates a new unique UUID
                 title: finalTitle,
-                description: packageToClone.description || '',
-                overview: packageToClone.overview || packageToClone.description || '',
-                price: !isNaN(finalPrice) && finalPrice >= 0 ? finalPrice : packageToClone.price,
-                originalPrice: packageToClone.originalPrice,
-                pricingMode: packageToClone.pricingMode || 'group',
-                location: packageToClone.location || '',
-                days: packageToClone.days || 1,
-                image: packageToClone.image || '',
-                tag: packageToClone.tag,
-                tagColor: packageToClone.tagColor,
-                theme: packageToClone.theme || 'Tour',
-                groupSize: packageToClone.groupSize || 'Family',
+                description: sourcePkg.description || '',
+                overview: sourcePkg.overview || sourcePkg.description || '',
+                price: finalPrice,
+                originalPrice: sourcePkg.originalPrice,
+                pricingMode: sourcePkg.pricingMode || 'group',
+                location: clonedBuilderData?.tripDetails?.destinations?.[0]?.locationId || sourcePkg.location || '',
+                days: clonedBuilderData?.tripDetails?.days || sourcePkg.days || 1,
+                image: sourcePkg.image || '',
+                tag: sourcePkg.tag,
+                tagColor: sourcePkg.tagColor,
+                theme: sourcePkg.theme || 'Tour',
+                groupSize: sourcePkg.groupSize || 'Family',
                 status: cloneStatus,
-                remainingSeats: packageToClone.remainingSeats,
-                offerEndTime: packageToClone.offerEndTime,
+                remainingSeats: sourcePkg.remainingSeats,
+                offerEndTime: formatMysqlDateTime(sourcePkg.offerEndTime),
                 // Highlights: deep copy { icon, label }
-                highlights: packageToClone.highlights ? packageToClone.highlights.map(h => ({ ...h })) : [],
-                // Itinerary: deep copy { day, title, desc }
-                itinerary: packageToClone.itinerary ? packageToClone.itinerary.map(item => ({ ...item })) : [],
+                highlights: sourcePkg.highlights ? sourcePkg.highlights.map(h => ({ ...h })) : [],
+                // Itinerary: deep copy { day, title, desc, items? }
+                itinerary: sourcePkg.itinerary ? JSON.parse(JSON.stringify(sourcePkg.itinerary)) : [],
                 // Inclusions / Exclusions: deep copy string arrays
-                included: packageToClone.included ? [...packageToClone.included] : [],
-                notIncluded: packageToClone.notIncluded ? [...packageToClone.notIncluded] : [],
+                included: sourcePkg.included ? [...sourcePkg.included] : [],
+                notIncluded: sourcePkg.notIncluded ? [...sourcePkg.notIncluded] : [],
                 // Gallery & Media: deep copy string arrays
-                gallery: packageToClone.gallery ? [...packageToClone.gallery] : [],
-                videos: packageToClone.videos ? [...packageToClone.videos] : [],
+                gallery: sourcePkg.gallery ? [...sourcePkg.gallery] : [],
+                videos: sourcePkg.videos ? [...sourcePkg.videos] : [],
                 // Add-ons: deep copy with new unique IDs
-                addons: packageToClone.addons ? packageToClone.addons.map((a, idx) => ({
+                addons: sourcePkg.addons ? sourcePkg.addons.map((a, idx) => ({
                     ...a,
                     id: `addon-${Date.now()}-${idx}`
                 })) : [],
-                // Builder Data: deep copy complete builder JSON
-                builderData: packageToClone.builderData ? JSON.parse(JSON.stringify(packageToClone.builderData)) : null,
-                // B2B Partner Commission
-                partnerCommissionType: packageToClone.partnerCommissionType,
-                partnerCommissionValue: packageToClone.partnerCommissionValue,
+                // Builder Data: deep copy complete builder JSON (including destinations, items, dayMeta, faqs, policies)
+                builderData: clonedBuilderData,
+                // B2B Partner Commission & Terms
+                partnerCommissionType: sourcePkg.partnerCommissionType,
+                partnerCommissionValue: sourcePkg.partnerCommissionValue,
+                terms_and_conditions: sourcePkg.terms_and_conditions,
+                itinerary_status: 'Draft',
+                client_name: null,
+                client_id: null,
             };
 
             const created = await addPackage(newPackageData);
             setPackageToClone(null);
 
             if (postCloneAction === 'builder' && created?.id) {
-                navigate(`/admin/itinerary-builder?edit=${created.id}`);
+                handleOpenInBuilder(created.id);
             } else if (postCloneAction === 'edit' && created) {
                 handleEditClick(created);
             }
@@ -353,7 +430,7 @@ export const AdminPackages: React.FC = () => {
         } finally {
             setIsCloning(false);
         }
-    }, [packageToClone, cloneTitle, clonePrice, cloneStatus, postCloneAction, addPackage, navigate, handleEditClick]);
+    }, [packageToClone, cloneTitle, clonePrice, cloneStatus, postCloneAction, addPackage, handleOpenInBuilder, handleEditClick]);
 
     const handleToggleStatus = useCallback((pkg: Package) => {
         const newStatus = pkg.status === 'Active' ? 'Inactive' : 'Active';
@@ -596,7 +673,7 @@ export const AdminPackages: React.FC = () => {
                                     type="button"
                                     onClick={() => {
                                         setIsEditModalOpen(false);
-                                        navigate(`/admin/itinerary-builder?edit=${editingPackageId}`);
+                                        if (editingPackageId) handleOpenInBuilder(editingPackageId);
                                     }}
                                     className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 font-bold rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors flex items-center gap-2"
                                 >
@@ -784,6 +861,7 @@ export const AdminPackages: React.FC = () => {
                                 key={pkg.id}
                                 pkg={pkg}
                                 onEdit={handleEditClick}
+                                onOpenBuilder={handleOpenInBuilder}
                                 onToggleStatus={handleToggleStatus}
                                 onClone={handleOpenCloneModal}
                                 onDelete={handleDelete}

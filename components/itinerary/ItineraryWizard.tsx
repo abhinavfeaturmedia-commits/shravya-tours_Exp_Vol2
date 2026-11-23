@@ -10,8 +10,9 @@ import { StepReview } from './steps/StepReview';
 import { StepFAQs } from './steps/StepFAQs';
 import {
     MapPin, Hotel, Car, Zap, DollarSign, Send,
-    Save, ChevronLeft, ChevronRight, Sparkles, CalendarDays, Users, Tag, HelpCircle
+    Save, ChevronLeft, ChevronRight, Sparkles, CalendarDays, Users, Tag, HelpCircle, Loader2
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ActivePanel = 'board' | 'details' | 'pricing' | 'review' | 'faqs';
@@ -47,8 +48,11 @@ const WizardContent: React.FC = () => {
     const { tripDetails, updateTripDetails, grandTotal, editPackageId, setStep, items, clearDraft } = useItinerary();
     const { masterLocations } = useData();
 
-    // Resolve location ID → name
-    const destinationName = masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name || tripDetails.destination || '';
+    // Resolve location ID → name (prefer first destination leg if present)
+    const primaryDestKey = tripDetails.destinations?.[0]?.locationId || tripDetails.destination || '';
+    const destinationName = masterLocations?.find(
+        l => String(l.id) === String(primaryDestKey) || (l.name && l.name.toLowerCase() === String(primaryDestKey).toLowerCase())
+    )?.name || primaryDestKey || '';
     const [activePanel, setActivePanel] = useState<ActivePanel>('board');
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [editingTitle, setEditingTitle] = useState(false);
@@ -285,44 +289,91 @@ const WizardContent: React.FC = () => {
 // ─── Named export wrapper (handles edit-mode loading & lead context prefill) ──
 export const ItineraryWizard: React.FC = () => {
     const [searchParams] = useSearchParams();
+    const editId = searchParams.get('edit');
+    const leadId = searchParams.get('leadId');
+
     const { packages, masterLocations, leads } = useData();
     const { loadPackage, updateTripDetails } = useItinerary();
-    const [isLoaded, setIsLoaded] = useState(false);
 
+    const packagesRef = useRef(packages);
+    const masterLocationsRef = useRef(masterLocations);
+    packagesRef.current = packages;
+    masterLocationsRef.current = masterLocations;
+
+    const loadedLeadIdRef = useRef<string | null>(null);
+    const [isLoadingPackage, setIsLoadingPackage] = useState<boolean>(() => Boolean(editId));
+
+    // Load full package record when ?edit=<id> is present (StrictMode-safe: no pre-fetch ref lock)
     useEffect(() => {
-        const editId = searchParams.get('edit');
-        const leadId = searchParams.get('leadId');
-
-        if (editId && !isLoaded) {
-            // Fetch the full package record (with builder_data) — the global list omits it for performance
-            api.getPackageById(editId)
-                .then(fullPkg => {
-                    const pkgToEdit = fullPkg || packages.find(p => p.id === editId);
-                    if (pkgToEdit) loadPackage(pkgToEdit, masterLocations || []);
-                })
-                .catch(() => {
-                    // Fallback: use the list-level package (no builderData, legacy migration)
-                    const pkgToEdit = packages.find(p => p.id === editId);
-                    if (pkgToEdit) loadPackage(pkgToEdit, masterLocations || []);
-                })
-                .finally(() => setIsLoaded(true));
-        } else if (leadId && !isLoaded && leads.length > 0) {
-            const lead = leads.find(l => l.id === leadId);
-            if (lead) {
-                updateTripDetails({
-                    title: `Trip to ${lead.destination || 'Custom Tour'}`,
-                    destination: lead.destination || '',
-                    clientName: lead.name,
-                    clientId: lead.id,
-                    startDate: lead.startDate || new Date().toISOString().split('T')[0],
-                    adults: lead.paxAdult !== undefined ? lead.paxAdult : 2,
-                    children: lead.paxChild !== undefined ? lead.paxChild : 0,
-                    itineraryStatus: 'Draft'
-                });
-                setIsLoaded(true);
-            }
+        if (!editId) {
+            setIsLoadingPackage(false);
+            return;
         }
-    }, [searchParams, packages, masterLocations, leads, loadPackage, updateTripDetails, isLoaded]);
+
+        let cancelled = false;
+        setIsLoadingPackage(true);
+
+        api.getPackageById(editId)
+            .then(fullPkg => {
+                if (cancelled) return;
+                const pkgToEdit = fullPkg || packagesRef.current.find(p => String(p.id) === String(editId));
+                if (pkgToEdit) {
+                    loadPackage(pkgToEdit, masterLocationsRef.current || []);
+                } else {
+                    toast.error('Could not load package details for editing.');
+                }
+            })
+            .catch(err => {
+                if (cancelled) return;
+                console.error('[ItineraryWizard] Failed to fetch package by ID:', err);
+                const pkgToEdit = packagesRef.current.find(p => String(p.id) === String(editId));
+                if (pkgToEdit) {
+                    loadPackage(pkgToEdit, masterLocationsRef.current || []);
+                } else {
+                    toast.error('Failed to load package. Please refresh and try again.');
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setIsLoadingPackage(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [editId, loadPackage]);
+
+    // Prefill from ?leadId=<id> when creating an itinerary from a lead
+    useEffect(() => {
+        if (editId || !leadId || leads.length === 0) return;
+        if (loadedLeadIdRef.current === leadId) return;
+
+        const lead = leads.find(l => String(l.id) === String(leadId));
+        if (lead) {
+            loadedLeadIdRef.current = leadId;
+            updateTripDetails({
+                title: `Trip to ${lead.destination || 'Custom Tour'}`,
+                destination: lead.destination || '',
+                clientName: lead.name,
+                clientId: lead.id,
+                startDate: lead.startDate || new Date().toISOString().split('T')[0],
+                adults: lead.paxAdult !== undefined ? lead.paxAdult : 2,
+                children: lead.paxChild !== undefined ? lead.paxChild : 0,
+                itineraryStatus: 'Draft'
+            });
+        }
+    }, [editId, leadId, leads, updateTripDetails]);
+
+    if (isLoadingPackage) {
+        return (
+            <div className="h-[calc(100vh-64px)] flex flex-col items-center justify-center bg-[#F5F0E8] gap-3">
+                <div className="size-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg">
+                    <Loader2 size={24} className="animate-spin" />
+                </div>
+                <p className="text-sm font-black text-stone-800">Loading Package Itinerary…</p>
+                <p className="text-xs text-stone-500">Fetching destination legs, stays, activities &amp; pricing</p>
+            </div>
+        );
+    }
 
     return <WizardContent />;
 };

@@ -21,10 +21,10 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
         tripDetails, items, grandTotal,
         packageMarkupPercent, packageMarkupFlat, packageMarkupAmount,
         setPackageMarkup, formatCurrency,
-        editPackageId, setEditPackageId, currency, taxConfig, dayMeta, subtotal, faqs
+        editPackageId, setEditPackageId, currency, taxConfig, dayMeta, subtotal, faqs, extraBuilderData
     } = useItinerary();
 
-    const { addPackage, updatePackage, masterLocations, masterMealPlans, masterRoomTypes } = useData();
+    const { packages, addPackage, updatePackage, masterLocations, masterMealPlans, masterRoomTypes } = useData();
     const navigate = useNavigate();
     const [isSaving, setIsSaving] = useState(false);
 
@@ -78,10 +78,11 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
     const accommodations = items.filter(i => i.type === 'hotel').sort((a, b) => a.day - b.day);
     const transports = items.filter(i => i.type === 'transport' || i.type === 'flight').sort((a, b) => a.day - b.day);
 
-    // Resolve destination ID → human-readable name
-    const destinationName = masterLocations?.find(l => String(l.id) === String(tripDetails.destination))?.name
-        || tripDetails.destination
-        || 'Paradise';
+    // Resolve primary destination ID & human-readable name (prefer first destination leg)
+    const primaryLocationId = tripDetails.destinations?.[0]?.locationId || tripDetails.destination || '';
+    const destinationName = masterLocations?.find(
+        l => String(l.id) === String(primaryLocationId) || (l.name && l.name.toLowerCase() === String(primaryLocationId).toLowerCase())
+    )?.name || primaryLocationId || 'Paradise';
 
     const parseTimeToMinutes = (timeStr?: string): number => {
         if (!timeStr) return 9999;
@@ -127,31 +128,56 @@ export const StepReview: React.FC<Props> = ({ onBack, onSaved }) => {
             const gallery = [tripDetails.coverImage, ...(tripDetails.gallery || []), ...dayImages]
                 .filter((url, i, s) => url && s.indexOf(url) === i);
 
+            const existingPkg = editPackageId
+                ? packages.find(p => String(p.id) === String(editPackageId))
+                : undefined;
+
+            const syncedTripDetails = {
+                ...tripDetails,
+                destination: primaryLocationId || tripDetails.destination,
+            };
+
             const packageData: Partial<Package> = {
-                title: tripDetails.title,
-                days: tripDetails.days,
+                title: syncedTripDetails.title,
+                days: syncedTripDetails.days,
                 groupSize: String(guestCount),
-                location: destinationName,
-                description: `Custom itinerary for ${tripDetails.clientName || guestCount + ' Guests'}.`,
+                // Keep Master Location ID when available so Quick Edit dropdown stays matched
+                location: primaryLocationId || destinationName,
+                description: existingPkg?.description && !existingPkg.description.startsWith('Custom itinerary for ')
+                    ? existingPkg.description
+                    : `Custom itinerary for ${syncedTripDetails.clientName || guestCount + ' Guests'}.`,
                 price: finalPrice,
-                image: tripDetails.coverImage,
-                theme: 'Custom',
-                overview: `A ${formatTripDuration({ nights: tripDetails.nights, days: tripDetails.days })} journey to ${destinationName}.`,
+                image: syncedTripDetails.coverImage,
+                theme: existingPkg?.theme || 'Custom',
+                overview: existingPkg?.overview && !existingPkg.overview.startsWith('A ')
+                    ? existingPkg.overview
+                    : `A ${formatTripDuration({ nights: syncedTripDetails.nights, days: syncedTripDetails.days })} journey to ${destinationName}.`,
                 highlights: items.slice(0, 4).map(i => ({ icon: 'star', label: i.title })),
                 itinerary: generatePackageItinerary(),
                 gallery,
-                status: 'Active',
-                included: tripDetails.included || [],
-                notIncluded: tripDetails.notIncluded || [],
+                // Preserve Draft/Inactive status on existing/cloned packages instead of forcing Active
+                status: editPackageId ? (existingPkg?.status || 'Active') : 'Active',
+                included: syncedTripDetails.included || [],
+                notIncluded: syncedTripDetails.notIncluded || [],
                 // V2 columns — persisted directly to DB
-                itinerary_status: tripDetails.itineraryStatus || 'Draft',
-                client_name: tripDetails.clientName || null,
-                client_id: tripDetails.clientId || null,
+                itinerary_status: syncedTripDetails.itineraryStatus || 'Draft',
+                client_name: syncedTripDetails.clientName || null,
+                client_id: syncedTripDetails.clientId || null,
                 validity_date: validityDays > 0
                     ? (() => { const d = new Date(); d.setDate(d.getDate() + validityDays); return d.toISOString().split('T')[0]; })()
                     : null,
-                terms_and_conditions: tripDetails.termsAndConditions || null,
-                builderData: { tripDetails, items, dayMeta, currency, taxConfig, packageMarkupPercent, packageMarkupFlat, faqs },
+                terms_and_conditions: syncedTripDetails.termsAndConditions || null,
+                builderData: {
+                    ...(extraBuilderData || {}),
+                    tripDetails: syncedTripDetails,
+                    items,
+                    dayMeta,
+                    currency,
+                    taxConfig,
+                    packageMarkupPercent,
+                    packageMarkupFlat,
+                    faqs,
+                },
             } as any;
 
             if (editPackageId) {

@@ -37,8 +37,9 @@ interface Props {
 }
 
 export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
-    const { tripDetails, updateTripDetails, items } = useItinerary();
+    const { tripDetails, updateTripDetails, items, addDay, removeDay } = useItinerary();
     const { masterLocations, addMasterLocation, masterMealPlans, masterTermsTemplates } = useData();
+    const prevMultiDayNightsRef = useRef<number[] | null>(null);
     const [isGeneratingIncExc, setIsGeneratingIncExc] = useState(false);
     const [showQuickAddModal, setShowQuickAddModal] = useState(false);
     const [showPdfImportModal, setShowPdfImportModal] = useState(false);
@@ -362,7 +363,11 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                         const currentDests = tripDetails.destinations && tripDetails.destinations.length > 0
                                             ? tripDetails.destinations
                                             : [{ locationId: tripDetails.destination || '', nights: 0, order: 0 }];
-                                        const updatedDests = currentDests.map((d, i) => ({
+                                        const currentSum = currentDests.reduce((acc, d) => acc + (Number(d.nights) || 0), 0);
+                                        if (currentSum > 0) {
+                                            prevMultiDayNightsRef.current = currentDests.map(d => Number(d.nights) || 0);
+                                        }
+                                        const updatedDests = currentDests.map(d => ({
                                             ...d,
                                             nights: 0
                                         }));
@@ -388,9 +393,17 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                         const currentDests = tripDetails.destinations && tripDetails.destinations.length > 0
                                             ? tripDetails.destinations
                                             : [{ locationId: tripDetails.destination || '', nights: 1, order: 0 }];
+                                        const savedNights = prevMultiDayNightsRef.current;
+                                        const canRestore = Boolean(
+                                            savedNights &&
+                                            savedNights.length === currentDests.length &&
+                                            savedNights.reduce((a, b) => a + b, 0) > 0
+                                        );
                                         const updatedDests = currentDests.map((d, i) => ({
                                             ...d,
-                                            nights: i === 0 && d.nights === 0 ? 1 : Math.max(1, d.nights || 1)
+                                            nights: canRestore
+                                                ? Math.max(0, savedNights![i])
+                                                : (i === 0 && d.nights === 0 ? 1 : Math.max(1, d.nights || 1))
                                         }));
                                         const totalNights = updatedDests.reduce((acc, d) => acc + (d.nights || 0), 0) || 1;
                                         updateTripDetails({
@@ -440,8 +453,9 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                                 placeholder="Select destination city/region..."
                                                 onQuickAdd={handleQuickAddLocation}
                                                 onChange={locId => {
-                                                    const newDests = [...(tripDetails.destinations || [])];
-                                                    newDests[idx].locationId = locId;
+                                                    const newDests = (tripDetails.destinations || []).map((d, i) =>
+                                                        i === idx ? { ...d, locationId: locId } : d
+                                                    );
                                                     const updates: any = { destinations: newDests };
                                                     if (idx === 0) updates.destination = locId;
                                                     updateTripDetails(updates);
@@ -454,8 +468,9 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                                 type="button"
                                                 disabled={dest.nights <= 0}
                                                 onClick={() => {
-                                                    const newDests = [...(tripDetails.destinations || [])];
-                                                    newDests[idx].nights = Math.max(0, (newDests[idx].nights || 0) - 1);
+                                                    const newDests = (tripDetails.destinations || []).map((d, i) =>
+                                                        i === idx ? { ...d, nights: Math.max(0, (d.nights || 0) - 1) } : d
+                                                    );
                                                     const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
                                                     updateTripDetails({
                                                         destinations: newDests,
@@ -465,6 +480,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                                 }}
                                                 className="px-2.5 hover:bg-stone-100 disabled:opacity-30 disabled:cursor-not-allowed text-stone-600 font-bold text-sm transition-colors"
                                                 title="Decrease nights"
+                                                aria-label={`Decrease nights for leg ${idx + 1}`}
                                             >
                                                 -
                                             </button>
@@ -476,8 +492,9 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    const newDests = [...(tripDetails.destinations || [])];
-                                                    newDests[idx].nights = (newDests[idx].nights || 0) + 1;
+                                                    const newDests = (tripDetails.destinations || []).map((d, i) =>
+                                                        i === idx ? { ...d, nights: (d.nights || 0) + 1 } : d
+                                                    );
                                                     const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
                                                     updateTripDetails({
                                                         destinations: newDests,
@@ -487,6 +504,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                                 }}
                                                 className="px-2.5 hover:bg-stone-100 text-stone-600 font-bold text-sm transition-colors"
                                                 title="Increase nights"
+                                                aria-label={`Increase nights for leg ${idx + 1}`}
                                             >
                                                 +
                                             </button>
@@ -496,18 +514,33 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const newDests = (tripDetails.destinations || []).filter((_, i) => i !== idx);
+                                                const newDests = (tripDetails.destinations || [])
+                                                    .filter((_, i) => i !== idx)
+                                                    .map((d, i) => ({ ...d, order: i }));
+
+                                                if (newDests.length === 0) {
+                                                    // Keep existing nights & days intact when clearing the last leg so planner days never disappear
+                                                    updateTripDetails({
+                                                        destinations: [],
+                                                        destination: '',
+                                                        nights: tripDetails.nights,
+                                                        days: tripDetails.days,
+                                                    });
+                                                    return;
+                                                }
+
                                                 const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
                                                 const updates: any = {
                                                     destinations: newDests,
                                                     nights: totalNights,
                                                     days: totalNights === 0 ? 1 : totalNights + 1
                                                 };
-                                                if (idx === 0 && newDests.length > 0) updates.destination = newDests[0].locationId;
+                                                if (idx === 0) updates.destination = newDests[0].locationId;
                                                 updateTripDetails(updates);
                                             }}
                                             className="size-8 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors shrink-0"
                                             title="Remove destination leg"
+                                            aria-label={`Remove destination leg ${idx + 1}`}
                                         >
                                             <X size={14} />
                                         </button>
@@ -517,7 +550,26 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        const newDests = [...(tripDetails.destinations || []), { locationId: '', nights: tripDetails.nights === 0 ? 0 : 1, order: (tripDetails.destinations || []).length }];
+                                        const currentLegs = tripDetails.destinations || [];
+                                        if (currentLegs.length === 0) {
+                                            // Preserve existing nights/days when adding the first leg to a legacy or cleared package
+                                            const preservedNights = Math.max(0, tripDetails.nights ?? Math.max(0, (tripDetails.days || 1) - 1));
+                                            const firstLeg = {
+                                                locationId: tripDetails.destination || '',
+                                                nights: preservedNights,
+                                                order: 0
+                                            };
+                                            updateTripDetails({
+                                                destinations: [firstLeg],
+                                                nights: preservedNights,
+                                                days: preservedNights === 0 ? 1 : preservedNights + 1
+                                            });
+                                            return;
+                                        }
+                                        const newDests = [
+                                            ...currentLegs,
+                                            { locationId: '', nights: tripDetails.nights === 0 ? 0 : 1, order: currentLegs.length }
+                                        ];
                                         const totalNights = newDests.reduce((acc, d) => acc + (d.nights || 0), 0);
                                         updateTripDetails({ destinations: newDests, nights: totalNights, days: totalNights === 0 ? 1 : totalNights + 1 });
                                     }}
@@ -527,9 +579,9 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                 </button>
                             </div>
 
-                            {/* Clean Calculated Duration Summary */}
+                            {/* Clean Calculated Duration Summary + Direct Day Add/Remove */}
                             <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                     {tripDetails.nights === 0 ? (
                                         <>
                                             <span className="px-2.5 py-1 rounded-lg bg-amber-500 text-white font-black text-xs shadow-2xs flex items-center gap-1.5">
@@ -550,9 +602,37 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                         </>
                                     )}
                                 </div>
-                                <span className="text-[11px] text-amber-800 font-medium">
-                                    {tripDetails.nights === 0 ? 'Same-day tour (No hotel overnight)' : 'Auto-calculated from destination legs'}
-                                </span>
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        disabled={(tripDetails.days || 1) <= 1}
+                                        onClick={() => {
+                                            const lastDay = tripDetails.days || 1;
+                                            if (lastDay <= 1) return;
+                                            const lastDayItems = items.filter(i => i.day === lastDay);
+                                            if (lastDayItems.length > 0 && !window.confirm(`Day ${lastDay} has ${lastDayItems.length} scheduled item(s). Remove Day ${lastDay}?`)) {
+                                                return;
+                                            }
+                                            removeDay(lastDay);
+                                            toast.info(`Removed Day ${lastDay}`);
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-rose-50 border border-amber-200 hover:border-rose-300 text-stone-700 hover:text-rose-700 disabled:opacity-40 disabled:cursor-not-allowed text-[11px] font-bold transition-colors"
+                                        title="Remove last day"
+                                    >
+                                        −1 Day
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            addDay();
+                                            toast.success(`Added Day ${(tripDetails.days || 1) + 1}`);
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold transition-colors shadow-2xs"
+                                        title="Add one more day"
+                                    >
+                                        +1 Day
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

@@ -681,6 +681,8 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
     const {
         tripDetails,
         updateTripDetails,
+        addDay,
+        removeDay,
         getItemsForDay,
         removeItem,
         updateItem,
@@ -1115,12 +1117,17 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                         );
                     })}
 
-                    {/* Shortcut to add more days */}
+                    {/* Shortcut to add 1 day directly */}
                     <button
                         type="button"
-                        onClick={onOpenTripDetails}
-                        title="Add more days in Trip Details"
-                        className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl border border-dashed border-stone-300 text-stone-400 hover:text-amber-600 hover:border-amber-300 text-[11px] font-bold transition-colors"
+                        onClick={() => {
+                            const nextDayNum = (tripDetails.days || 1) + 1;
+                            addDay();
+                            setActiveDay(nextDayNum);
+                            toast.success(`Added Day ${nextDayNum}`);
+                        }}
+                        title="Add 1 day to itinerary"
+                        className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl border border-dashed border-stone-300 text-stone-500 hover:text-amber-600 hover:border-amber-300 text-[11px] font-bold transition-colors"
                     >
                         <Plus size={12} />
                         <span>Add Day</span>
@@ -1163,13 +1170,32 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                                                     {theme}
                                                 </h4>
                                             </div>
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                                                hasItems
-                                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                                    : 'bg-stone-100 text-stone-500 border border-stone-200'
-                                            }`}>
-                                                {hasItems ? `✓ ${items.length} Items` : 'Pending'}
-                                            </span>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                    hasItems
+                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                        : 'bg-stone-100 text-stone-500 border border-stone-200'
+                                                }`}>
+                                                    {hasItems ? `✓ ${items.length} Items` : 'Pending'}
+                                                </span>
+                                                {days.length > 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (hasItems && !window.confirm(`Remove Day ${day} and its ${items.length} scheduled item(s)? Subsequent days will shift up.`)) {
+                                                                return;
+                                                            }
+                                                            removeDay(day);
+                                                            toast.info(`Removed Day ${day}`);
+                                                        }}
+                                                        className="size-6 rounded-md text-stone-300 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors opacity-80 group-hover:opacity-100"
+                                                        title={`Remove Day ${day}`}
+                                                        aria-label={`Remove Day ${day}`}
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Card Body - Service items preview */}
@@ -1242,16 +1268,22 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                             })}
 
                             {/* Ghost Add Day Card */}
-                            <div
-                                onClick={onOpenTripDetails}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const nextDayNum = (tripDetails.days || 1) + 1;
+                                    addDay();
+                                    setActiveDay(nextDayNum);
+                                    toast.success(`Added Day ${nextDayNum}`);
+                                }}
                                 className="rounded-2xl border-2 border-dashed border-stone-300 hover:border-amber-400 bg-stone-50/50 hover:bg-amber-50/30 flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-colors group min-h-[220px]"
                             >
                                 <div className="size-12 rounded-full bg-stone-100 group-hover:bg-amber-100 text-stone-400 group-hover:text-amber-600 flex items-center justify-center mb-3 transition-colors">
                                     <Plus size={20} />
                                 </div>
-                                <h5 className="text-xs font-black uppercase tracking-wider text-stone-600 group-hover:text-amber-700">Add More Days</h5>
-                                <p className="text-[11px] text-stone-400 mt-1 max-w-[160px]">Configure trip length & nights in Trip Details</p>
-                            </div>
+                                <h5 className="text-xs font-black uppercase tracking-wider text-stone-600 group-hover:text-amber-700">Add Day {(tripDetails.days || 1) + 1}</h5>
+                                <p className="text-[11px] text-stone-400 mt-1 max-w-[160px]">Extend itinerary by 1 night / 1 day</p>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1276,6 +1308,14 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                                     onUpdate={updateItem}
                                     onUpdateMeta={meta => updateDayMeta(day, meta)}
                                     onClearDay={() => getItemsForDay(day).forEach(i => removeItem(i.id))}
+                                    onRemoveDay={() => {
+                                        const dayItems = getItemsForDay(day);
+                                        if (dayItems.length > 0 && !window.confirm(`Remove Day ${day} and its ${dayItems.length} scheduled item(s)? Subsequent days will shift up.`)) {
+                                            return;
+                                        }
+                                        removeDay(day);
+                                        toast.info(`Removed Day ${day}`);
+                                    }}
                                     onDuplicateTo={(targetDay) => duplicateDay(day, targetDay)}
                                     onFocusDay={() => {
                                         setActiveDay(day);
@@ -1286,14 +1326,20 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                         })}
 
                         {/* Ghost "Add Day" column */}
-                        <div
+                        <button
+                            type="button"
                             className="w-64 shrink-0 rounded-2xl border-2 border-dashed border-stone-300 flex flex-col items-center justify-center gap-2 text-stone-400 hover:border-amber-400 hover:text-amber-500 transition-colors cursor-pointer"
-                            onClick={onOpenTripDetails}
-                            title="Click to add more days in Trip Details"
+                            onClick={() => {
+                                const nextDayNum = (tripDetails.days || 1) + 1;
+                                addDay();
+                                setActiveDay(nextDayNum);
+                                toast.success(`Added Day ${nextDayNum}`);
+                            }}
+                            title="Add 1 more day to itinerary"
                         >
                             <Plus size={20} className="opacity-50" />
-                            <p className="text-xs font-bold uppercase tracking-widest text-center px-4">Add more days<br/>in Trip Details</p>
-                        </div>
+                            <p className="text-xs font-bold uppercase tracking-widest text-center px-4">Add Day {(tripDetails.days || 1) + 1}<br/><span className="text-[10px] font-medium normal-case">Extend trip by 1 night</span></p>
+                        </button>
                     </div>
                 </div>
             )}
@@ -1933,9 +1979,10 @@ const DayColumn: React.FC<{
     onUpdate: (id: string, u: any) => void;
     onUpdateMeta: (m: any) => void;
     onClearDay: () => void;
+    onRemoveDay?: () => void;
     onDuplicateTo: (targetDay: number) => void;
     onFocusDay?: () => void;
-}> = ({ day, theme, locationId, cityName, items, meta, allDays, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay, onDuplicateTo, onFocusDay }) => {
+}> = ({ day, theme, locationId, cityName, items, meta, allDays, onAdd, onRemove, onUpdate, onUpdateMeta, onClearDay, onRemoveDay, onDuplicateTo, onFocusDay }) => {
     const { reorderItems, addItem } = useItinerary();
     const { masterLocations } = useData();
     const [showMenu, setShowMenu] = useState(false);
@@ -2097,7 +2144,7 @@ const DayColumn: React.FC<{
                             <p className="text-[11px] font-black text-amber-600 uppercase tracking-widest">Day {day}</p>
                             <span className="text-[9px] font-bold text-stone-400 border border-stone-200 px-1.5 py-0.5 rounded flex items-center gap-1">
                                 <MapPin size={8} />
-                                {masterLocations?.find(l => l.id === locationId)?.name || 'Multi-City'}
+                                {masterLocations?.find(l => String(l.id) === String(locationId))?.name || cityName || 'Multi-City'}
                             </span>
                             {onFocusDay && (
                                 <button
@@ -2213,10 +2260,20 @@ const DayColumn: React.FC<{
                                 )}
                                 {items.length > 0 && (
                                     <button
+                                        type="button"
                                         onClick={() => { if (window.confirm(`Clear all ${items.length} items from Day ${day}?`)) onClearDay(); setShowMenu(false); }}
                                         className="w-full px-4 py-2 text-left hover:bg-rose-50 text-rose-500 flex items-center gap-2 border-t border-stone-50 mt-1"
                                     >
                                         <Trash2 size={12} /> Clear Day
+                                    </button>
+                                )}
+                                {allDays.length > 1 && onRemoveDay && (
+                                    <button
+                                        type="button"
+                                        onClick={() => { onRemoveDay(); setShowMenu(false); }}
+                                        className="w-full px-4 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2 border-t border-stone-50"
+                                    >
+                                        <X size={12} /> Remove Day {day}
                                     </button>
                                 )}
                             </div>
