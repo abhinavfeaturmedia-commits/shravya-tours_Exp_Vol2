@@ -8,6 +8,9 @@ import { Link } from 'react-router-dom';
 import { downloadCouponAsImage, downloadCouponAsPDF } from '../../utils/couponDownloader';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { BorderBeam } from 'border-beam';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 const safeFormatDate = (dateVal: any, fmtStr: string = 'MMM dd, yyyy', fallback: string = 'No Limit'): string => {
   if (!dateVal) return fallback;
@@ -190,7 +193,13 @@ export const CouponManager: React.FC = () => {
   };
 
   const handleDeleteClick = async (c: Coupon) => {
-    if (window.confirm(`Are you sure you want to permanently delete coupon ${c.code}?`)) {
+    const ok = await confirmAction({
+      title: 'Delete Coupon',
+      message: `Are you sure you want to permanently delete coupon ${c.code}?`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (ok) {
       try {
         await deleteCoupon(c.id);
       } catch (err) {
@@ -538,7 +547,7 @@ export const CouponManager: React.FC = () => {
                 {/* Valid From */}
                 <div>
                   <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Valid From</label>
-                  <input
+                  <BrandDatePicker
                     type="date"
                     className="w-full h-11 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-150 dark:border-slate-800 focus:ring-2 focus:ring-primary/20 text-sm font-semibold text-slate-900 dark:text-white outline-none"
                     value={form.validFrom || ''}
@@ -549,7 +558,7 @@ export const CouponManager: React.FC = () => {
                 {/* Valid To */}
                 <div>
                   <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Valid Until</label>
-                  <input
+                  <BrandDatePicker
                     type="date"
                     className="w-full h-11 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-150 dark:border-slate-800 focus:ring-2 focus:ring-primary/20 text-sm font-semibold text-slate-900 dark:text-white outline-none"
                     value={form.validTo || ''}
@@ -562,7 +571,7 @@ export const CouponManager: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
                 <div>
                   <label className="block text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Status</label>
-                  <select
+                  <BrandSelect
                     className="w-full h-11 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-150 dark:border-slate-800 focus:ring-2 focus:ring-primary/20 text-sm font-bold text-slate-900 dark:text-white outline-none"
                     value={form.status}
                     onChange={e => setForm(p => ({ ...p, status: e.target.value as any }))}
@@ -570,7 +579,7 @@ export const CouponManager: React.FC = () => {
                     <option value="Active">Active (Publish)</option>
                     <option value="Inactive">Inactive (Draft)</option>
                     <option value="Expired">Expired</option>
-                  </select>
+                  </BrandSelect>
                 </div>
 
                 {/* Used toggle indicator (for edit options or default settings) */}
@@ -1006,7 +1015,7 @@ export const CouponManager: React.FC = () => {
             </div>
 
             {/* Filter by Category */}
-            <select
+            <BrandSelect
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value as any)}
               className="h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-150 dark:border-slate-800 text-xs font-bold outline-none text-slate-900 dark:text-white"
@@ -1014,10 +1023,10 @@ export const CouponManager: React.FC = () => {
               <option value="All">All Categories</option>
               <option value="ToursOnly">Tours Only</option>
               <option value="MultiCategory">Multi-Category</option>
-            </select>
+            </BrandSelect>
 
             {/* Filter by Status */}
-            <select
+            <BrandSelect
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value as any)}
               className="h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-150 dark:border-slate-800 text-xs font-bold outline-none text-slate-900 dark:text-white"
@@ -1026,10 +1035,10 @@ export const CouponManager: React.FC = () => {
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
               <option value="Expired">Expired</option>
-            </select>
+            </BrandSelect>
 
             {/* Filter by Usage */}
-            <select
+            <BrandSelect
               value={usageFilter}
               onChange={e => setUsageFilter(e.target.value as any)}
               className="h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-150 dark:border-slate-800 text-xs font-bold outline-none text-slate-900 dark:text-white"
@@ -1037,7 +1046,7 @@ export const CouponManager: React.FC = () => {
               <option value="All">All Usages</option>
               <option value="Used">Marked Used</option>
               <option value="Unused">Unused (Available)</option>
-            </select>
+            </BrandSelect>
           </div>
         </div>
 

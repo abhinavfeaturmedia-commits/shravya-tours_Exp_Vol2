@@ -6,6 +6,9 @@ import { useAuth } from '../../context/AuthContext';
 import { toast } from 'sonner';
 import { generateReceiptPDF } from '../../utils/pdfGenerator';
 import { useSettings } from '../../context/SettingsContext';
+import { confirmAction } from '../ui/ConfirmDialog';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 
 interface LedgerManagementModalProps {
     isOpen: boolean;
@@ -112,7 +115,13 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
     };
 
     const handleDelete = async (txId: string) => {
-        if (window.confirm('Are you sure you want to delete this transaction?')) {
+        const ok = await confirmAction({
+            title: 'Delete Transaction',
+            message: 'Are you sure you want to delete this transaction?',
+            confirmLabel: 'Delete',
+            tone: 'danger',
+        });
+        if (ok) {
             await deleteBookingTransaction(booking.id, txId);
         }
     };
@@ -200,14 +209,14 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-500">Date</label>
-                                    <input type="date" required value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary" />
+                                    <BrandDatePicker required labelText="Transaction Date" value={formData.date || ''} onChange={e => setFormData({ ...formData, date: e.target.value })} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white text-sm" />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-500">Type</label>
-                                    <select value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value as any })} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary">
+                                    <BrandSelect labelText="Transaction Type" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value as any })} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white text-sm">
                                         <option value="Payment">Payment Received</option>
                                         <option value="Refund">Refund Given</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-500">Amount (₹)</label>
@@ -215,13 +224,13 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-500">Mode</label>
-                                    <select value={formData.method} onChange={e => setFormData({ ...formData, method: e.target.value as any })} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary">
+                                    <BrandSelect labelText="Payment Mode" value={formData.method} onChange={e => setFormData({ ...formData, method: e.target.value as any })} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white text-sm">
                                         <option value="Bank Transfer">Bank Transfer</option>
                                         <option value="UPI">UPI</option>
                                         <option value="Credit Card">Credit Card</option>
                                         <option value="Cash">Cash</option>
                                         <option value="Cheque">Cheque</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div className="space-y-1 lg:col-span-2">
                                     <label className="text-xs font-bold text-slate-500">Reference / Notes</label>

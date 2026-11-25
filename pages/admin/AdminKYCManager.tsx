@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -407,7 +408,7 @@ export const AdminKYCManager: React.FC = () => {
             {/* Sort Panel */}
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-400 font-bold uppercase shrink-0">Sort</span>
-              <select
+              <BrandSelect
                 value={sortKey}
                 onChange={e => setSortKey(e.target.value as any)}
                 className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-violet-500/20"
@@ -415,7 +416,7 @@ export const AdminKYCManager: React.FC = () => {
                 <option value="submitted">Date Submitted</option>
                 <option value="name">Name</option>
                 <option value="company">Company</option>
-              </select>
+              </BrandSelect>
               <button
                 onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
                 className="p-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white"

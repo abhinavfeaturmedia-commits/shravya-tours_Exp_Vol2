@@ -21,7 +21,10 @@ import {
     MasterActivityInfo
 } from '../../../src/lib/gemini';
 import { toast } from 'sonner';
+import { confirmAction } from '../../ui/ConfirmDialog';
 import { api } from '../../../src/lib/api';
+import BrandSelect from '../../ui/BrandSelect';
+import BrandDatePicker from '../../ui/BrandDatePicker';
 import { RoomSharingType, ROOM_SHARING_OPTIONS, MealPlanCode, MEAL_PLAN_DESCRIPTIONS } from '../../../types';
 
 interface Props {
@@ -1181,9 +1184,15 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                                                 {days.length > 1 && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => {
-                                                            if (hasItems && !window.confirm(`Remove Day ${day} and its ${items.length} scheduled item(s)? Subsequent days will shift up.`)) {
-                                                                return;
+                                                        onClick={async () => {
+                                                            if (hasItems) {
+                                                                const ok = await confirmAction({
+                                                                    title: `Remove Day ${day}`,
+                                                                    message: `Remove Day ${day} and its ${items.length} scheduled item(s)? Subsequent days will shift up.`,
+                                                                    confirmLabel: 'Remove Day',
+                                                                    tone: 'danger',
+                                                                });
+                                                                if (!ok) return;
                                                             }
                                                             removeDay(day);
                                                             toast.info(`Removed Day ${day}`);
@@ -1308,10 +1317,16 @@ export const StepDayPlanner: React.FC<Props> = ({ onOpenPricing, onOpenTripDetai
                                     onUpdate={updateItem}
                                     onUpdateMeta={meta => updateDayMeta(day, meta)}
                                     onClearDay={() => getItemsForDay(day).forEach(i => removeItem(i.id))}
-                                    onRemoveDay={() => {
+                                    onRemoveDay={async () => {
                                         const dayItems = getItemsForDay(day);
-                                        if (dayItems.length > 0 && !window.confirm(`Remove Day ${day} and its ${dayItems.length} scheduled item(s)? Subsequent days will shift up.`)) {
-                                            return;
+                                        if (dayItems.length > 0) {
+                                            const ok = await confirmAction({
+                                                title: `Remove Day ${day}`,
+                                                message: `Remove Day ${day} and its ${dayItems.length} scheduled item(s)? Subsequent days will shift up.`,
+                                                confirmLabel: 'Remove Day',
+                                                tone: 'danger',
+                                            });
+                                            if (!ok) return;
                                         }
                                         removeDay(day);
                                         toast.info(`Removed Day ${day}`);
@@ -1721,8 +1736,14 @@ const DayEditorModal: React.FC<{
                                     {items.length > 0 && (
                                         <button
                                             type="button"
-                                            onClick={() => {
-                                                if (window.confirm(`Clear all ${items.length} items from Day ${day}?`)) onClearDay();
+                                            onClick={async () => {
+                                                const ok = await confirmAction({
+                                                    title: `Clear Day ${day}`,
+                                                    message: `Clear all ${items.length} items from Day ${day}?`,
+                                                    confirmLabel: 'Clear Day',
+                                                    tone: 'danger',
+                                                });
+                                                if (ok) onClearDay();
                                                 setShowMenu(false);
                                             }}
                                             className="w-full px-4 py-2 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2 border-t border-stone-100 mt-1"
@@ -2261,7 +2282,16 @@ const DayColumn: React.FC<{
                                 {items.length > 0 && (
                                     <button
                                         type="button"
-                                        onClick={() => { if (window.confirm(`Clear all ${items.length} items from Day ${day}?`)) onClearDay(); setShowMenu(false); }}
+                                        onClick={async () => {
+                                            const ok = await confirmAction({
+                                                title: `Clear Day ${day}`,
+                                                message: `Clear all ${items.length} items from Day ${day}?`,
+                                                confirmLabel: 'Clear Day',
+                                                tone: 'danger',
+                                            });
+                                            if (ok) onClearDay();
+                                            setShowMenu(false);
+                                        }}
                                         className="w-full px-4 py-2 text-left hover:bg-rose-50 text-rose-500 flex items-center gap-2 border-t border-stone-50 mt-1"
                                     >
                                         <Trash2 size={12} /> Clear Day
@@ -2580,11 +2610,12 @@ const ActivityCard: React.FC<{
                     <div className="flex items-center flex-wrap gap-1.5 text-[11px] font-bold text-stone-400 mt-1 min-w-0">
                         <div className="flex items-center gap-1 bg-white/50 border border-stone-200/60 rounded px-1.5 py-0.5 focus-within:border-amber-300 transition-colors shrink-0">
                             <Clock size={10} className={style.badgeText} />
-                            <input
+                            <BrandDatePicker
                                 type="time"
+                                hideIcon
                                 value={item.time || ''}
                                 onChange={e => onUpdate(item.id, { time: e.target.value })}
-                                className="bg-transparent border-none p-0 focus:ring-0 outline-none text-stone-500 appearance-none text-[10px] [&::-webkit-calendar-picker-indicator]:opacity-50 hover:[&::-webkit-calendar-picker-indicator]:opacity-100"
+                                className="bg-transparent border-none p-0 focus:ring-0 outline-none text-stone-500 text-[10px] font-bold"
                             />
                         </div>
 
@@ -2662,20 +2693,19 @@ const ActivityCard: React.FC<{
                     {item.type === 'hotel' && (
                         <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-stone-100">
                             {/* Room Type */}
-                            <select
+                            <BrandSelect
                                 value={item.roomTypeId || ''}
                                 onChange={e => onUpdate(item.id, { roomTypeId: e.target.value })}
                                 className="text-[10px] font-bold bg-stone-100 border-none rounded-md px-2 py-1 text-stone-700 outline-none hover:bg-stone-200 transition-colors"
-                                title="Room Category"
                             >
                                 <option value="">Select Room Type</option>
                                 {masterRoomTypes.filter(r => r.status === 'Active').map(r => (
                                     <option key={r.id} value={r.id}>{r.name}</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
 
                             {/* Room Sharing / Occupancy (Triple Sharing support) */}
-                            <select
+                            <BrandSelect
                                 value={item.roomSharing || tripDetails.roomSharing || 'Double'}
                                 onChange={e => onUpdate(item.id, { roomSharing: e.target.value as RoomSharingType })}
                                 className={`text-[10px] font-black rounded-md px-2 py-1 outline-none transition-colors border ${
@@ -2683,27 +2713,25 @@ const ActivityCard: React.FC<{
                                         ? 'bg-amber-100 text-amber-900 border-amber-300'
                                         : 'bg-stone-100 text-stone-700 border-transparent hover:bg-stone-200'
                                 }`}
-                                title="Room Sharing / Occupancy"
                             >
                                 {ROOM_SHARING_OPTIONS.map(opt => (
                                     <option key={opt.id} value={opt.id}>
                                         {opt.id === 'Triple' ? '👥+1 Triple Sharing (3 Pax)' : opt.label}
                                     </option>
                                 ))}
-                            </select>
+                            </BrandSelect>
 
                             {/* Meal Plan */}
-                            <select
+                            <BrandSelect
                                 value={item.mealPlanId || (masterMealPlans.find(m => m.code === tripDetails.mealPlanCode)?.id || tripDetails.mealPlanCode || '')}
                                 onChange={e => onUpdate(item.id, { mealPlanId: e.target.value })}
                                 className="text-[10px] font-bold bg-stone-100 border-none rounded-md px-2 py-1 text-stone-700 outline-none hover:bg-stone-200 transition-colors"
-                                title="Meal Plan"
                             >
                                 <option value="">Select Meal Plan</option>
                                 {masterMealPlans.filter(mp => mp.status === 'Active').map(mp => (
                                     <option key={mp.id} value={mp.id}>{mp.code} - {mp.name}</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
 
                             {/* Triple Sharing extra bed specification banner */}
                             {(item.roomSharing || tripDetails.roomSharing) === 'Triple' && (

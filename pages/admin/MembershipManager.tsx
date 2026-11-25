@@ -3,6 +3,9 @@ import { useData } from '../../context/DataContext';
 import { MembershipPlan, CustomerMembership } from '../../types';
 import { format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -326,15 +329,15 @@ export const MembershipManager: React.FC = () => {
               />
             </div>
             <div className="flex gap-2.5">
-              <select
+              <BrandSelect
                 className="h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-primary/20 font-semibold text-sm min-w-[130px]"
                 value={tierFilter}
                 onChange={e => setTierFilter(e.target.value)}
               >
                 <option value="All">All Tiers</option>
                 {activeTiers.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <select
+              </BrandSelect>
+              <BrandSelect
                 className="h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 focus:ring-primary/20 font-semibold text-sm min-w-[130px]"
                 value={statusFilter}
                 onChange={e => setStatusFilter(e.target.value)}
@@ -345,7 +348,7 @@ export const MembershipManager: React.FC = () => {
                 <option value="Suspended">Suspended</option>
                 <option value="Expired">Expired</option>
                 <option value="Cancelled">Cancelled</option>
-              </select>
+              </BrandSelect>
             </div>
           </div>
 
@@ -506,7 +509,15 @@ export const MembershipManager: React.FC = () => {
                                 </button>
                                 {/* Delete */}
                                 <button
-                                  onClick={() => { if (window.confirm('Delete this membership record permanently?')) deleteMembership(m.id); }}
+                                  onClick={async () => {
+                                    const ok = await confirmAction({
+                                      title: 'Delete Membership',
+                                      message: 'Delete this membership record permanently?',
+                                      confirmLabel: 'Delete',
+                                      tone: 'danger',
+                                    });
+                                    if (ok) deleteMembership(m.id);
+                                  }}
                                   className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-colors border border-slate-200 dark:border-slate-700 hover:border-rose-200"
                                   title="Delete"
                                 >
@@ -791,7 +802,15 @@ export const MembershipManager: React.FC = () => {
                         {plan.isActive ? 'Deactivate' : 'Activate'}
                       </button>
                       <button
-                        onClick={() => { if (window.confirm(`Permanently delete "${plan.name}"? This cannot be undone.`)) deleteMembershipPlan(plan.id); }}
+                        onClick={async () => {
+                          const ok = await confirmAction({
+                            title: 'Delete Membership Plan',
+                            message: `Permanently delete "${plan.name}"? This cannot be undone.`,
+                            confirmLabel: 'Delete',
+                            tone: 'danger',
+                          });
+                          if (ok) deleteMembershipPlan(plan.id);
+                        }}
                         className="px-3 py-2.5 rounded-xl font-bold text-xs transition-colors border border-rose-200 dark:border-rose-900/50 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-700 flex items-center gap-1"
                         title="Delete Plan"
                       >
@@ -1124,17 +1143,17 @@ export const MembershipManager: React.FC = () => {
             <div className="p-8 space-y-6">
               <div>
                 <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Customer <span className="text-rose-500">*</span></label>
-                <select className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 font-medium" value={enrollForm.customerId || ''} onChange={e => setEnrollForm(f => ({ ...f, customerId: e.target.value }))}>
+                <BrandSelect className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 font-medium" value={enrollForm.customerId || ''} onChange={e => setEnrollForm(f => ({ ...f, customerId: e.target.value }))}>
                   <option value="">Select a Customer...</option>
                   {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
-                </select>
+                </BrandSelect>
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Membership Plan <span className="text-rose-500">*</span></label>
-                <select className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 font-medium" value={enrollForm.planId || ''} onChange={e => { const plan = membershipPlans.find(p => p.id === e.target.value); setEnrollForm(f => ({ ...f, planId: e.target.value, billingCycle: 'Yearly', pricePaid: plan?.pricePerYear || 0 })); }}>
+                <BrandSelect className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 font-medium" value={enrollForm.planId || ''} onChange={e => { const plan = membershipPlans.find(p => p.id === e.target.value); setEnrollForm(f => ({ ...f, planId: e.target.value, billingCycle: 'Yearly', pricePaid: plan?.pricePerYear || 0 })); }}>
                   <option value="">Select a Plan...</option>
                   {membershipPlans.filter(p => p.isActive).map(p => <option key={p.id} value={p.id}>{p.name} (Tier: {p.tier})</option>)}
-                </select>
+                </BrandSelect>
               </div>
               {enrollForm.planId && (() => {
                 const plan = membershipPlans.find(p => p.id === enrollForm.planId);
@@ -1154,12 +1173,12 @@ export const MembershipManager: React.FC = () => {
                   <>
                     <div>
                       <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Billing Cycle <span className="text-rose-500">*</span></label>
-                      <select className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 font-medium" value={cycle} onChange={e => setEnrollForm(f => ({ ...f, billingCycle: e.target.value as any, pricePaid: e.target.value === 'Monthly' ? plan.pricePerMonth : e.target.value === 'Quarterly' ? plan.pricePerQuarter : e.target.value === '6 Months' ? plan.pricePerHalfYear : plan.pricePerYear }))}>
+                      <BrandSelect className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 font-medium" value={cycle} onChange={e => setEnrollForm(f => ({ ...f, billingCycle: e.target.value as any, pricePaid: e.target.value === 'Monthly' ? plan.pricePerMonth : e.target.value === 'Quarterly' ? plan.pricePerQuarter : e.target.value === '6 Months' ? plan.pricePerHalfYear : plan.pricePerYear }))}>
                         <option value="Monthly">Monthly — ₹{plan.pricePerMonth}/mo</option>
                         <option value="Quarterly">Quarterly — ₹{plan.pricePerQuarter}/quarter</option>
                         <option value="6 Months">6 Months — ₹{plan.pricePerHalfYear}/6mo</option>
                         <option value="Yearly">Yearly — ₹{plan.pricePerYear}/yr</option>
-                      </select>
+                      </BrandSelect>
                     </div>
                     <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs font-semibold space-y-2">
                       <div className="flex justify-between"><span className="text-slate-500">Price to Pay:</span><span className="text-slate-900 dark:text-white font-black text-sm">₹{(Number(price) || 0).toLocaleString()}</span></div>
@@ -1174,7 +1193,7 @@ export const MembershipManager: React.FC = () => {
               })()}
               <div>
                 <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Start Date</label>
-                <input type="date" className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 font-medium" value={enrollForm.enrolledOn || new Date().toISOString().split('T')[0]} onChange={e => setEnrollForm(f => ({ ...f, enrolledOn: e.target.value }))} />
+                <BrandDatePicker type="date" className="w-full h-12 px-4 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-primary/50 font-medium" value={enrollForm.enrolledOn || new Date().toISOString().split('T')[0]} onChange={e => setEnrollForm(f => ({ ...f, enrolledOn: e.target.value }))} />
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Admin Notes (Optional)</label>

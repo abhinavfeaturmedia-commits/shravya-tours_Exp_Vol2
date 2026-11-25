@@ -3,6 +3,7 @@ import { useData } from '../../context/DataContext';
 import { OfferBanner } from '../../types';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
 
 const EMPTY_FORM: Partial<OfferBanner> = {
   title: '',
@@ -99,7 +100,13 @@ export const OfferBannersManager: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this offer banner?')) return;
+    const ok = await confirmAction({
+      title: 'Delete Offer Banner',
+      message: 'Are you sure you want to delete this offer banner?',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteOfferBanner(id);
       await fetchAdminBanners();

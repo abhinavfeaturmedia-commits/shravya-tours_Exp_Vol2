@@ -48,23 +48,23 @@ export const PartnerLogin: React.FC = () => {
               </div>
             )}
             <div>
-              <label className="block text-sm font-semibold text-white/70 mb-2">Email Address</label>
+              <label htmlFor="partner-email" className="block text-sm font-semibold text-white/70 mb-2">Email Address</label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 material-symbols-outlined text-[20px]">email</span>
-                <input id="partner-email" type="email" value={email} onChange={e => setEmail(e.target.value)}
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 material-symbols-outlined text-[20px]" aria-hidden="true">email</span>
+                <input id="partner-email" name="email" type="email" autoComplete="username" spellCheck={false} enterKeyHint="next" value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="partner@company.com" required autoFocus
                   className="w-full h-12 bg-white/10 border border-white/15 rounded-xl pl-12 pr-4 text-white placeholder:text-white/30 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all" />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-white/70 mb-2">Password</label>
+              <label htmlFor="partner-password" className="block text-sm font-semibold text-white/70 mb-2">Password</label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 material-symbols-outlined text-[20px]">lock</span>
-                <input id="partner-password" type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 material-symbols-outlined text-[20px]" aria-hidden="true">lock</span>
+                <input id="partner-password" name="password" type={showPass ? 'text' : 'password'} autoComplete="current-password" enterKeyHint="done" value={password} onChange={e => setPassword(e.target.value)}
                   placeholder="Your password" required
                   className="w-full h-12 bg-white/10 border border-white/15 rounded-xl pl-12 pr-12 text-white placeholder:text-white/30 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all" />
-                <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors">
-                  <span className="material-symbols-outlined text-[20px]">{showPass ? 'visibility_off' : 'visibility'}</span>
+                <button type="button" onClick={() => setShowPass(!showPass)} aria-label={showPass ? 'Hide password' : 'Show password'} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors">
+                  <span className="material-symbols-outlined text-[20px]" aria-hidden="true">{showPass ? 'visibility_off' : 'visibility'}</span>
                 </button>
               </div>
               <ForgotPasswordPanel portal="partner" />

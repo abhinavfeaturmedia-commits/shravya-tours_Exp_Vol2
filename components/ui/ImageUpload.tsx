@@ -17,7 +17,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({ value, onChange, label
         const file = e.target.files?.[0];
         if (file) {
             if (file.size > 5 * 1024 * 1024) { // 5MB limit
-                alert("File is too large. Max 5MB");
+                toast.error("File is too large. Max 5MB");
                 return;
             }
 

@@ -13,10 +13,12 @@ export const CustomerLogin: React.FC = () => {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [infoMsg, setInfoMsg] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfoMsg('');
     setLoading(true);
     try {
       await login(email.trim(), password);
@@ -123,29 +125,41 @@ export const CustomerLogin: React.FC = () => {
             </p>
           </div>
 
+          {/* Info Banner (Forgot Password guidance) */}
+          {infoMsg && (
+            <div role="status" className="flex items-start gap-3 mb-6 p-4 rounded-2xl text-xs bg-amber-50 border border-amber-200 text-amber-800 animate-in fade-in">
+              <span className="material-symbols-outlined text-[18px] shrink-0 text-amber-600">info</span>
+              <span>{infoMsg}</span>
+            </div>
+          )}
+
           {/* Error Banner */}
           {error && (
-            <div className="flex items-center gap-3 mb-6 p-4 rounded-2xl text-xs bg-red-50 border border-red-200 text-red-600 animate-in fade-in">
+            <div role="alert" className="flex items-center gap-3 mb-6 p-4 rounded-2xl text-xs bg-red-50 border border-red-200 text-red-600 animate-in fade-in">
               <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
               <span>{error}</span>
             </div>
           )}
 
           {/* Sign In Form with Double-Bezel tactile card */}
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#EDE8DF] shadow-xs">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#EDE8DF] shadow-sm">
             <form onSubmit={handleSubmit} className="space-y-5">
               {/* Email */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                <label htmlFor="customer-login-email" className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                   Email Address
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-slate-400">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-slate-400" aria-hidden="true">
                     mail
                   </span>
                   <input
                     id="customer-login-email"
+                    name="email"
                     type="email"
+                    autoComplete="username"
+                    spellCheck={false}
+                    enterKeyHint="next"
                     required
                     autoFocus
                     value={email}
@@ -159,24 +173,30 @@ export const CustomerLogin: React.FC = () => {
               {/* Password */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <label htmlFor="customer-login-password" className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                     Password
                   </label>
                   <button
                     type="button"
-                    onClick={() => setError('To reset your password, contact our 24/7 concierge at hello@shrawellotours.com or WhatsApp support.')}
+                    onClick={() => {
+                      setError('');
+                      setInfoMsg('To reset your password, contact our 24/7 concierge at hello@shrawellotours.com or reach out via WhatsApp support.');
+                    }}
                     className="text-[11px] font-bold text-[#C9732A] hover:underline"
                   >
                     Forgot password?
                   </button>
                 </div>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-slate-400">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-slate-400" aria-hidden="true">
                     lock
                   </span>
                   <input
                     id="customer-login-password"
+                    name="password"
                     type={showPass ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    enterKeyHint="done"
                     required
                     value={password}
                     onChange={e => setPassword(e.target.value)}
@@ -186,9 +206,10 @@ export const CustomerLogin: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                    aria-label={showPass ? 'Hide password' : 'Show password'}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-lg"
                   >
-                    <span className="material-symbols-outlined text-[18px]">
+                    <span className="material-symbols-outlined text-[18px]" aria-hidden="true">
                       {showPass ? 'visibility_off' : 'visibility'}
                     </span>
                   </button>

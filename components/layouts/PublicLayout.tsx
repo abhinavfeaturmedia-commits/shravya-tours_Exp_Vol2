@@ -9,6 +9,7 @@ import { PaymentLogos } from '../ui/PaymentLogos';
 import { useCustomerAuth } from '../../context/CustomerAuthContext';
 import { PublicChatbot } from '../ui/PublicChatbot';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
+import { toast } from 'sonner';
 
 export const PublicLayout: React.FC = () => {
   const location = useLocation();
@@ -110,11 +111,11 @@ export const PublicLayout: React.FC = () => {
 
   const handlePlaceholder = (e: React.MouseEvent, label: string) => {
     e.preventDefault();
-    alert(`${label} page is coming soon!`);
+    toast.info(`${label} page is coming soon!`);
   };
 
   const handleSocialClick = (platform: string) => {
-    alert(`Redirecting to ${platform} profile...`);
+    toast.info(`${platform.charAt(0).toUpperCase() + platform.slice(1)} community page coming soon!`);
   };
 
   return (
@@ -293,7 +294,7 @@ export const PublicLayout: React.FC = () => {
             <PaymentLogos />
           </div>
           <div className="border-t border-slate-100 dark:border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-slate-400">
-            <p>© 2025 SHRAWELLO Travel Hub and Events LLP. All rights reserved.</p>
+            <p>© {new Date().getFullYear()} SHRAWELLO Travel Hub and Events LLP. All rights reserved.</p>
             <div className="flex gap-6">
               <Link to="/customer/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">My Account</Link>
               <Link to="/partner/login" className="hover:text-slate-900 dark:hover:text-white transition-colors">Associate Portal</Link>

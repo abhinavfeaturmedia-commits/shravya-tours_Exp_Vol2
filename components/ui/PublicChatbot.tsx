@@ -10,6 +10,7 @@ import { ThinkingOrb } from 'thinking-orbs';
 import { BotAvatar } from 'bot-avatars';
 import { BorderBeam } from 'border-beam';
 import { COMPANY_WHATSAPP } from '../../src/lib/constants';
+import { toast } from 'sonner';
 
 interface MatchedPackage {
     id: string | number;
@@ -271,7 +272,7 @@ export const PublicChatbot: React.FC = () => {
     const toggleVoiceInput = () => {
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         if (!SpeechRecognition) {
-            alert("Voice input is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Safari.");
+            toast.error("Voice input is not supported in this browser. Please use Google Chrome, Microsoft Edge, or Safari.");
             return;
         }
 

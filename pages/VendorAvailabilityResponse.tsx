@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../src/lib/api';
 import { PublicAvailabilityRfq, RfqPriceBasis } from '../types';
+import { BrandSelect } from '../components/ui/BrandSelect';
 import { 
     CheckCircle2, XCircle, AlertCircle, Send, Clock, Loader2, 
     Building2, Calendar, Users, Bed, Utensils, ShieldCheck, 
@@ -399,18 +400,20 @@ export const VendorAvailabilityResponse: React.FC = () => {
                                         </div>
 
                                         {/* Price Basis Select */}
-                                        <div className="relative sm:w-48">
-                                            <select 
-                                                value={basis} 
+                                        <div className="sm:w-52">
+                                            <BrandSelect
+                                                tone="dark"
+                                                labelText="Price Basis"
+                                                value={basis}
                                                 onChange={e => setBasis(e.target.value as RfqPriceBasis)}
-                                                className="w-full h-full rounded-2xl bg-slate-800 border border-white/15 px-3 py-3 text-sm font-semibold text-white outline-none focus:border-orange-400 appearance-none pr-8 cursor-pointer">
+                                                className="w-full h-full rounded-2xl bg-slate-800 border border-white/15 px-3 py-3 text-sm font-semibold text-white outline-none focus:border-orange-400"
+                                            >
                                                 {BASES.map(b => (
-                                                    <option key={b.key} value={b.key} className="bg-slate-900 text-white">
+                                                    <option key={b.key} value={b.key}>
                                                         {b.label}
                                                     </option>
                                                 ))}
-                                            </select>
-                                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                            </BrandSelect>
                                         </div>
                                     </div>
                                     <p className="text-[11px] text-slate-400 mt-1">

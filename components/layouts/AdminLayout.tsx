@@ -42,7 +42,6 @@ const TOP_NAV_CATEGORIES: NavCategory[] = [
     items: [
       { name: 'Dashboard', path: '/admin', icon: 'dashboard', module: 'dashboard', desc: 'Real-time metrics, revenue KPIs & quick ops', tag: '#Realtime' },
       { name: 'Inbox & Approvals', path: '/admin/inbox', icon: 'all_inbox', module: 'inbox', desc: 'Central governance queue: Payments, Leaves, Ops, KYC', tag: '#Approvals' },
-      { name: 'Staff Attendance', path: '/admin/attendance', icon: 'fingerprint', module: 'attendance', desc: 'Live presence, shifts & attendance roster', tag: '#Roster' },
       { name: 'Analytics', path: '/admin/analytics', icon: 'bar_chart', module: 'analytics', desc: 'Revenue breakdown, growth & sales insights', tag: '#Reports' },
       { name: 'Reports Extractor', path: '/admin/reports', icon: 'file_download', module: 'reports', desc: 'Data extractor, aggregated CSV/Excel reports & history', tag: '#Exports' },
     ]
@@ -636,7 +635,9 @@ export const AdminLayout: React.FC = () => {
         <div className="max-w-[1750px] mx-auto h-14 sm:h-16 px-2.5 sm:px-4 lg:px-6 flex items-center justify-between gap-1.5 sm:gap-2 xl:gap-3">
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 pr-1.5 sm:pr-2.5 xl:pr-4 border-r border-slate-200/60 dark:border-slate-800/60">
             <button
+              type="button"
               onClick={() => setIsMobileDrawerOpen(true)}
+              aria-label="Open Navigation Menu"
               className="lg:hidden p-1.5 sm:p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
               title="Open Navigation Menu"
             >
@@ -853,7 +854,9 @@ export const AdminLayout: React.FC = () => {
             
             {/* Search Bar Input Trigger */}
             <button
+              type="button"
               onClick={() => setIsCommandPaletteOpen(true)}
+              aria-label="Search System (Cmd or Ctrl + K)"
               className="flex items-center justify-center gap-1.5 h-8 sm:h-9 lg:h-10 px-2 sm:px-2.5 xl:px-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-xs font-medium border border-transparent min-w-[34px]"
               title="Search System (Cmd/Ctrl + K)"
             >
@@ -894,6 +897,7 @@ export const AdminLayout: React.FC = () => {
             {/* Inbox & Approvals Hub Quick Button (Hidden on xs mobile to prevent header blowout) */}
             <Link
               to="/admin/inbox"
+              aria-label="Inbox & Approvals Hub"
               className="hidden sm:flex relative size-8 sm:size-9 lg:size-10 rounded-full text-slate-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400 items-center justify-center transition-colors border border-transparent"
               title="Inbox & Approvals Hub"
             >
@@ -903,7 +907,10 @@ export const AdminLayout: React.FC = () => {
             {/* Notification Bell Dropdown */}
             <div className="relative shrink-0">
               <button
+                type="button"
                 onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                aria-label="Notifications"
+                aria-expanded={isNotificationsOpen}
                 className="relative size-8 sm:size-9 lg:size-10 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent"
                 title="Notifications"
               >
@@ -983,10 +990,13 @@ export const AdminLayout: React.FC = () => {
               )}
             </div>
 
-            {/* User Profile Avatar & Dropdown (Always Anchored & Visible) */}
+              {/* User Profile Avatar & Dropdown (Always Anchored & Visible) */}
             <div ref={profileMenuRef} className="relative shrink-0">
               <button
+                type="button"
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                aria-label="Account Menu"
+                aria-expanded={isProfileMenuOpen}
                 className="flex items-center gap-1.5 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 title={`${currentUser.name} (${currentUser.role})`}
               >
@@ -1107,7 +1117,7 @@ export const AdminLayout: React.FC = () => {
       </div>
 
       {isMobileDrawerOpen && (
-        <div className="fixed inset-0 z-[200] lg:hidden">
+        <div role="dialog" aria-modal="true" aria-label="Admin Navigation Menu" className="fixed inset-0 z-[200] lg:hidden">
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsMobileDrawerOpen(false)} />
           <div className="fixed inset-y-0 left-0 w-[300px] bg-white dark:bg-[#0F172A] shadow-2xl flex flex-col z-[210] animate-in slide-in-from-left">
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -1115,7 +1125,7 @@ export const AdminLayout: React.FC = () => {
                 <img src="/logo.png" alt="Logo" className="h-8 w-auto" />
                 <span className="font-black text-base tracking-tight text-slate-900 dark:text-white">SHRAWELLO</span>
               </div>
-              <button onClick={() => setIsMobileDrawerOpen(false)} className="p-2 text-slate-400 hover:text-slate-600">
+              <button type="button" onClick={() => setIsMobileDrawerOpen(false)} aria-label="Close navigation menu" className="p-2 text-slate-400 hover:text-slate-600">
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
@@ -1266,7 +1276,7 @@ export const AdminLayout: React.FC = () => {
         const nudgeId = `vendor-due-${v.name}-${v.daysLeft}`;
         if (isDismissed(nudgeId)) return null;
         return (
-          <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[49]">
+          <div className="fixed bottom-20 lg:bottom-6 left-4 right-20 sm:right-auto md:left-6 z-[49]">
             <SuggestPopup
               id={nudgeId}
               variant="float"
@@ -1292,7 +1302,7 @@ export const AdminLayout: React.FC = () => {
         const nudgeId = `overdue-backlog-${currentUser.id}`;
         if (myOverdue < 10 || isDismissed(nudgeId) || isSnoozed(nudgeId)) return null;
         return (
-          <div className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-[48]">
+          <div className="fixed bottom-36 lg:bottom-24 right-4 lg:right-6 z-[48]">
             <SuggestPopup
               id={nudgeId}
               variant="float"
@@ -1308,7 +1318,7 @@ export const AdminLayout: React.FC = () => {
       })()}
 
       {isUserIdle && !isSnoozed('idle-session-warning') && !isDismissed('idle-session-warning') && (
-        <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[47]">
+        <div className="fixed bottom-20 lg:bottom-6 left-4 right-20 sm:right-auto md:left-6 z-[47]">
           <SuggestPopup
             id="idle-session-warning"
             variant="float"
@@ -1324,7 +1334,7 @@ export const AdminLayout: React.FC = () => {
       )}
 
       {showPositiveReinforcement && (
-        <div className="fixed bottom-6 left-4 right-4 md:left-[300px] md:right-auto z-[46]">
+        <div className="fixed bottom-20 lg:bottom-6 left-4 right-20 sm:right-auto md:left-6 z-[46]">
           <SuggestPopup
             id={`positive-reinforcement-${sessionBookingsProcessed}`}
             variant="float"
@@ -1347,7 +1357,7 @@ export const AdminLayout: React.FC = () => {
         const unpaidBookings = bookings.filter(b => b.payment === 'Unpaid').length;
         const hotLeads = leads.filter(l => l.status === 'Hot').length;
         return (
-          <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div role="dialog" aria-modal="true" aria-label="Daily Briefing" className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
             <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 overflow-hidden animate-in zoom-in-95">
               <div className="h-1.5 bg-gradient-to-r from-indigo-500 to-purple-600" />
               <div className="p-6">
@@ -1358,7 +1368,7 @@ export const AdminLayout: React.FC = () => {
                     </p>
                     <h3 className="text-xl font-black text-slate-900 dark:text-white">{currentUser.name.split(' ')[0]}! Here's your day ☀️</h3>
                   </div>
-                  <button onClick={() => { setShowMorningBriefing(false); localStorage.setItem('morning_briefing_last_shown', new Date().toDateString()); }} className="size-8 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
+                  <button type="button" aria-label="Dismiss daily briefing" onClick={() => { setShowMorningBriefing(false); localStorage.setItem('morning_briefing_last_shown', new Date().toDateString()); }} className="size-8 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
                     <span className="material-symbols-outlined text-[18px]">close</span>
                   </button>
                 </div>
@@ -1429,7 +1439,7 @@ export const AdminLayout: React.FC = () => {
       })()}
 
       {isCommandPaletteOpen && (
-        <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh]">
+        <div role="dialog" aria-modal="true" aria-label="Quick System Search" className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh]">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={() => setIsCommandPaletteOpen(false)} />
           <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-scale-in">
             <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 dark:border-slate-800">

@@ -5,6 +5,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { VEHICLE_CATEGORIES, VEHICLE_MODELS, VehicleCategoryType, VehicleModel } from '../../constants/vehicleCatalog';
 import { VehicleSelectorModal } from './VehicleSelectorModal';
 import { VehicleCardImage } from '../ui/VehicleCardImage';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 
 // Validation schema
 const carBookingSchema = z.object({
@@ -238,26 +240,22 @@ export const CarBookingForm: React.FC<CarBookingFormProps> = ({ onSubmit }) => {
                         <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 block pl-1">
                             2. Choose Specific Model (Top 3 in {selectedCategory})
                         </label>
-                        <div className="relative">
-                            <select
-                                value={selectedModelName}
-                                onChange={(e) => {
-                                    setSelectedModelName(e.target.value);
-                                    setValue('vehicleType', e.target.value);
-                                }}
-                                className="w-full pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-primary appearance-none cursor-pointer"
-                            >
-                                <option value={`Any ${selectedCategory}`}>Any {selectedCategory} Model (Best Rate)</option>
-                                {availableModels.map((model) => (
-                                    <option key={model.id} value={model.name}>
-                                        ⭐ {model.name} ({model.seating})
-                                    </option>
-                                ))}
-                            </select>
-                            <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">
-                                expand_more
-                            </span>
-                        </div>
+                        <BrandSelect
+                            value={selectedModelName}
+                            labelText="Choose Specific Model"
+                            onChange={(e) => {
+                                setSelectedModelName(e.target.value);
+                                setValue('vehicleType', e.target.value);
+                            }}
+                            className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-primary"
+                        >
+                            <option value={`Any ${selectedCategory}`}>Any {selectedCategory} Model (Best Rate)</option>
+                            {availableModels.map((model) => (
+                                <option key={model.id} value={model.name}>
+                                    ⭐ {model.name} ({model.seating})
+                                </option>
+                            ))}
+                        </BrandSelect>
                     </div>
 
                     <button
@@ -320,12 +318,12 @@ export const CarBookingForm: React.FC<CarBookingFormProps> = ({ onSubmit }) => {
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">
                         Date
                     </label>
-                    <input
+                    <BrandDatePicker
                         {...register('pickupDate')}
-                        className={`w-full px-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${
+                        labelText="Pickup Date"
+                        className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${
                             errors.pickupDate ? 'border-red-400' : 'border-transparent'
                         }`}
-                        type="date"
                         min={today}
                     />
                     {errors.pickupDate && (
@@ -338,12 +336,13 @@ export const CarBookingForm: React.FC<CarBookingFormProps> = ({ onSubmit }) => {
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">
                         Time
                     </label>
-                    <input
+                    <BrandDatePicker
                         {...register('pickupTime')}
-                        className={`w-full px-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${
+                        type="time"
+                        labelText="Pickup Time"
+                        className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${
                             errors.pickupTime ? 'border-red-400' : 'border-transparent'
                         }`}
-                        type="time"
                     />
                     {errors.pickupTime && (
                         <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.pickupTime.message}</p>

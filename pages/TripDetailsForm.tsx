@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../src/lib/api';
 import { COMPANY_PHONE_DISPLAY, COMPANY_WHATSAPP, COMPANY_EMAIL } from '../src/lib/constants';
 import { toast } from 'sonner';
+import { BrandSelect } from '../components/ui/BrandSelect';
+import { BrandDatePicker } from '../components/ui/BrandDatePicker';
 import {
     CheckCircle2, AlertCircle, Send, Users, Calendar, MapPin, 
     BedDouble, Car, Utensils, Compass, Plane, Train, Sparkles, 
@@ -731,9 +733,10 @@ export const TripDetailsForm: React.FC = () => {
                                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mb-1.5">
                                     Salutation
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={salutation}
                                     onChange={e => setSalutation(e.target.value)}
+                                    labelText="Salutation"
                                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-white outline-hidden focus:ring-2 focus:ring-amber-500"
                                 >
                                     <option value="Mr.">Mr.</option>
@@ -741,7 +744,7 @@ export const TripDetailsForm: React.FC = () => {
                                     <option value="Ms.">Ms.</option>
                                     <option value="Dr.">Dr.</option>
                                     <option value="Prof.">Prof.</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div className="sm:col-span-3">
@@ -830,10 +833,10 @@ export const TripDetailsForm: React.FC = () => {
                                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mb-1.5">
                                     Date of Birth (Optional)
                                 </label>
-                                <input
-                                    type="date"
+                                <BrandDatePicker
                                     value={dob}
                                     onChange={e => setDob(e.target.value)}
+                                    labelText="Date of Birth"
                                     className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white outline-hidden focus:ring-2 focus:ring-amber-500"
                                 />
                             </div>
@@ -934,30 +937,25 @@ export const TripDetailsForm: React.FC = () => {
                                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mb-1.5">
                                     Departure Date (Start of Trip)
                                 </label>
-                                <div className="relative">
-                                    <Calendar size={15} className="absolute left-3.5 top-3 text-slate-400" />
-                                    <input
-                                        type="date"
-                                        value={startDate}
-                                        onChange={e => setStartDate(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white outline-hidden"
-                                    />
-                                </div>
+                                <BrandDatePicker
+                                    value={startDate}
+                                    onChange={e => setStartDate(e.target.value)}
+                                    labelText="Departure Date"
+                                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white outline-hidden"
+                                />
                             </div>
 
                             <div>
                                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mb-1.5">
                                     Return Date (End of Trip)
                                 </label>
-                                <div className="relative">
-                                    <Calendar size={15} className="absolute left-3.5 top-3 text-slate-400" />
-                                    <input
-                                        type="date"
-                                        value={endDate}
-                                        onChange={e => setEndDate(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white outline-hidden"
-                                    />
-                                </div>
+                                <BrandDatePicker
+                                    value={endDate}
+                                    min={startDate || undefined}
+                                    onChange={e => setEndDate(e.target.value)}
+                                    labelText="Return Date"
+                                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white outline-hidden"
+                                />
                             </div>
                         </div>
 
@@ -1203,25 +1201,27 @@ export const TripDetailsForm: React.FC = () => {
                                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mb-1.5">
                                     Meal Plan Preference
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={mealPlanPreference}
                                     onChange={e => setMealPlanPreference(e.target.value)}
+                                    labelText="Meal Plan Preference"
                                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white outline-hidden"
                                 >
                                     <option value="CP (Breakfast Only)">CP (Only Breakfast)</option>
                                     <option value="MAP (Breakfast + Dinner)">MAP (Breakfast + Dinner - Recommended)</option>
                                     <option value="AP (All Meals - B/L/D)">AP (All Meals - Breakfast + Lunch + Dinner)</option>
                                     <option value="EP (Room Only - No Meals)">EP (Room Only - No Meals)</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
                                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mb-1.5">
                                     Food Dietary Preference
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={foodPreference}
                                     onChange={e => setFoodPreference(e.target.value)}
+                                    labelText="Food Dietary Preference"
                                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white outline-hidden"
                                 >
                                     <option value="Vegetarian">Pure Vegetarian</option>
@@ -1230,7 +1230,7 @@ export const TripDetailsForm: React.FC = () => {
                                     <option value="Halal">Halal</option>
                                     <option value="Vegan">Vegan</option>
                                     <option value="Special Dietary Requirements">Special Dietary Requirements</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                         </div>
 
@@ -1240,15 +1240,16 @@ export const TripDetailsForm: React.FC = () => {
                                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mb-1.5">
                                     Preferred Sightseeing Pace
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={sightseeingPace}
                                     onChange={e => setSightseeingPace(e.target.value)}
+                                    labelText="Preferred Sightseeing Pace"
                                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white outline-hidden"
                                 >
                                     <option value="Leisure">Leisure (Relaxed, easy mornings, free time)</option>
                                     <option value="Moderate">Moderate (Balanced sightseeing & relaxation)</option>
                                     <option value="Fast">Fast-Paced (Cover maximum temples & attractions)</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
@@ -1369,16 +1370,17 @@ export const TripDetailsForm: React.FC = () => {
                                             <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
                                                 Gender
                                             </label>
-                                            <select
+                                            <BrandSelect
                                                 value={p.gender}
                                                 onChange={e => handlePassengerChange(idx, 'gender', e.target.value)}
-                                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
+                                                labelText="Passenger Gender"
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-white"
                                             >
                                                 <option value="Male">Male</option>
                                                 <option value="Female">Female</option>
                                                 <option value="Child">Child</option>
                                                 <option value="Other">Other</option>
-                                            </select>
+                                            </BrandSelect>
                                         </div>
 
                                         <div>
@@ -1398,10 +1400,11 @@ export const TripDetailsForm: React.FC = () => {
                                             <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
                                                 Relationship
                                             </label>
-                                            <select
+                                            <BrandSelect
                                                 value={p.relation}
                                                 onChange={e => handlePassengerChange(idx, 'relation', e.target.value)}
-                                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
+                                                labelText="Passenger Relationship"
+                                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-900 dark:text-white"
                                             >
                                                 <option value="Self / Primary">Self / Primary</option>
                                                 <option value="Spouse">Spouse</option>
@@ -1410,7 +1413,7 @@ export const TripDetailsForm: React.FC = () => {
                                                 <option value="Friend">Friend</option>
                                                 <option value="Relative">Relative</option>
                                                 <option value="Colleague">Colleague</option>
-                                            </select>
+                                            </BrandSelect>
                                         </div>
                                     </div>
                                 </div>

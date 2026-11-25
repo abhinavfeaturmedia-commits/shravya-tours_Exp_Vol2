@@ -15,6 +15,8 @@ import { getEmbedUrl, getVideoThumbnail } from '../utils/videoUtils';
 import { copyToClipboard } from '../utils/clipboard';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 import { BorderBeam } from 'border-beam';
+import { BrandSelect } from '../components/ui/BrandSelect';
+import { BrandDatePicker } from '../components/ui/BrandDatePicker';
 
 export const PackageDetail: React.FC = () => {
   const { id: rawId } = useParams<{ id: string }>();
@@ -1502,10 +1504,11 @@ export const PackageDetail: React.FC = () => {
 
                 <div className="space-y-1">
                   <label htmlFor="booking-date" className="block text-xs font-bold uppercase text-slate-500 pl-1">Travel Date</label>
-                  <input 
-                    required 
-                    id="booking-date" 
-                    min={new Date().toISOString().split('T')[0]} 
+                  <BrandDatePicker
+                    required
+                    id="booking-date"
+                    labelText="Preferred Travel Date"
+                    min={new Date().toISOString().split('T')[0]}
                     max={(() => {
                       const todayStr = new Date().toISOString().split('T')[0];
                       const rawValidity = tour.validity_date || (tour as any).validityDate;
@@ -1514,11 +1517,10 @@ export const PackageDetail: React.FC = () => {
                       if (isNaN(parsed.getTime())) return undefined;
                       const formatted = parsed.toISOString().split('T')[0];
                       return formatted >= todayStr ? formatted : undefined;
-                    })()} 
-                    type="date" 
-                    className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white" 
-                    value={bookingData.date || new Date().toISOString().split('T')[0]} 
-                    onChange={e => setBookingData({ ...bookingData, date: e.target.value })} 
+                    })()}
+                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 text-sm font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                    value={bookingData.date || new Date().toISOString().split('T')[0]}
+                    onChange={e => setBookingData({ ...bookingData, date: e.target.value })}
                   />
                 </div>
                 <div className="p-3.5 bg-primary/5 rounded-2xl border border-primary/10 space-y-1.5">
@@ -3095,17 +3097,18 @@ export const PackageDetail: React.FC = () => {
                           </div>
                           <div className="space-y-1">
                             <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Location</label>
-                            <select
+                            <BrandSelect
                               required
                               value={editForm.location}
+                              labelText="Package Location"
                               onChange={e => setEditForm({ ...editForm, location: e.target.value })}
-                              className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
                             >
                               <option value="">Select Location</option>
                               {masterLocations.map((loc) => (
                                 <option key={loc.id} value={loc.id}>{loc.name}</option>
                               ))}
-                            </select>
+                            </BrandSelect>
                           </div>
                           <div className="space-y-1">
                             <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Duration (Days)</label>
@@ -3141,11 +3144,11 @@ export const PackageDetail: React.FC = () => {
                           </div>
                           <div className="space-y-1">
                             <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Validity Date</label>
-                            <input
-                              type="date"
+                            <BrandDatePicker
+                              labelText="Validity Date"
                               value={editForm.validityDate ? editForm.validityDate.split('T')[0] : ''}
                               onChange={e => setEditForm({ ...editForm, validityDate: e.target.value })}
-                              className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
                             />
                           </div>
                         </div>
@@ -3185,25 +3188,27 @@ export const PackageDetail: React.FC = () => {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1">
                               <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Status (Visibility)</label>
-                              <select
+                              <BrandSelect
                                 value={editForm.status}
+                                labelText="Package Visibility Status"
                                 onChange={e => setEditForm({ ...editForm, status: e.target.value as any })}
-                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
                               >
                                 <option value="Active">Active (Visible)</option>
                                 <option value="Inactive">Inactive (Hidden)</option>
-                              </select>
+                              </BrandSelect>
                             </div>
                             <div className="space-y-1">
                               <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Pricing Mode</label>
-                              <select
+                              <BrandSelect
                                 value={editForm.pricingMode}
+                                labelText="Pricing Mode"
                                 onChange={e => setEditForm({ ...editForm, pricingMode: e.target.value as any })}
-                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
                               >
                                 <option value="group">Group/Package Price</option>
                                 <option value="per_person">Per Person Price</option>
-                              </select>
+                              </BrandSelect>
                             </div>
                             <div className="space-y-1">
                               <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Group Size</label>
@@ -3227,31 +3232,33 @@ export const PackageDetail: React.FC = () => {
                             </div>
                             <div className="space-y-1">
                               <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Badge Color Class</label>
-                              <select
+                              <BrandSelect
                                 value={editForm.tagColor}
+                                labelText="Badge Color Class"
                                 onChange={e => setEditForm({ ...editForm, tagColor: e.target.value })}
-                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
                               >
                                 <option value="bg-blue-500 text-white">Blue</option>
                                 <option value="bg-green-500 text-white">Green</option>
                                 <option value="bg-red-500 text-white">Red</option>
                                 <option value="bg-yellow-400 text-yellow-900">Yellow</option>
                                 <option value="bg-purple-500 text-white">Purple</option>
-                              </select>
+                              </BrandSelect>
                             </div>
                             <div className="space-y-1">
                               <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Theme (Collection)</label>
-                              <select
+                              <BrandSelect
                                 value={editForm.theme}
+                                labelText="Theme Collection"
                                 onChange={e => setEditForm({ ...editForm, theme: e.target.value })}
-                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
                               >
                                 <option value="">Select a Collection</option>
                                 {(cmsGallery || []).map(item => (
                                   <option key={item.id} value={item.title}>{item.title}</option>
                                 ))}
                                 <option value="Other">Other</option>
-                              </select>
+                              </BrandSelect>
                             </div>
                           </div>
                         </div>
@@ -3272,11 +3279,12 @@ export const PackageDetail: React.FC = () => {
                             </div>
                             <div className="space-y-1">
                               <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Offer End Date &amp; Time (UTC)</label>
-                              <input
+                              <BrandDatePicker
                                 type="datetime-local"
+                                labelText="Offer End Date and Time"
                                 value={editForm.offerEndTime}
                                 onChange={e => setEditForm({ ...editForm, offerEndTime: e.target.value })}
-                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
                               />
                             </div>
                           </div>
@@ -3287,14 +3295,15 @@ export const PackageDetail: React.FC = () => {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-1">
                               <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Commission Type</label>
-                              <select
+                              <BrandSelect
                                 value={editForm.partnerCommissionType}
+                                labelText="Partner Commission Type"
                                 onChange={e => setEditForm({ ...editForm, partnerCommissionType: e.target.value as any })}
-                                className="w-full rounded-xl border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3.5 font-medium outline-none focus:ring-2 focus:ring-primary transition-all text-slate-900 dark:text-white"
                               >
                                 <option value="Percentage">Percentage (%)</option>
                                 <option value="Flat_Amount">Flat Amount (₹)</option>
-                              </select>
+                              </BrandSelect>
                             </div>
                             <div className="space-y-1">
                               <label className="block text-xs font-bold uppercase text-slate-500 pl-1">Commission Value (blank for default)</label>
@@ -3488,19 +3497,20 @@ export const PackageDetail: React.FC = () => {
                                 {/* Platform Select */}
                                 <div className="w-full sm:w-44 space-y-1">
                                   <label className="text-[10px] font-bold text-slate-400 uppercase pl-1">Platform</label>
-                                  <select
+                                  <BrandSelect
                                     value={video.platform}
+                                    labelText="Video Platform"
                                     onChange={e => {
                                       const vList = [...editForm.videos];
                                       vList[idx] = { ...video, platform: e.target.value as any };
                                       setEditForm(prev => ({ ...prev, videos: vList }));
                                     }}
-                                    className="w-full rounded-lg border-slate-200 dark:border-slate-750 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
+                                    className="w-full rounded-lg border border-slate-200 dark:border-slate-750 bg-white dark:bg-slate-800 px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-primary text-slate-900 dark:text-white"
                                   >
                                     <option value="youtube">YouTube</option>
                                     <option value="instagram">Instagram</option>
                                     <option value="facebook">Facebook</option>
-                                  </select>
+                                  </BrandSelect>
                                 </div>
                                 {/* URL Input */}
                                 <div className="flex-1 w-full space-y-1">

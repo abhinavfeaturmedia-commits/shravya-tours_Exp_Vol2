@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useData } from '../../../context/DataContext';
 import { useItinerary, ItineraryItem, ServiceType } from '../ItineraryContext';
 import { MasterHotel, MasterActivity, MasterTransport, MasterTransportType } from '../../../types';
+import BrandSelect from '../../ui/BrandSelect';
 import { 
     X, Search, Hotel, Bike, Car, Plane, StickyNote, Plus, MapPin, Star, 
     Clock, Users, ArrowRight, Shield, UserCheck, Globe, Save, CheckCircle2, 
@@ -1150,7 +1151,7 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Location</label>
-                                        <select
+                                        <BrandSelect
                                             value={newHotelLocation}
                                             onChange={e => setNewHotelLocation(e.target.value)}
                                             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none text-slate-900 dark:text-white"
@@ -1159,12 +1160,12 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                             {masterLocations.map(loc => (
                                                 <option key={loc.id} value={loc.id}>{loc.name} ({loc.region})</option>
                                             ))}
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Rating (Stars)</label>
-                                            <select
+                                            <BrandSelect
                                                 value={newHotelRating}
                                                 onChange={e => setNewHotelRating(e.target.value)}
                                                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none text-slate-900 dark:text-white"
@@ -1173,7 +1174,7 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                                 <option value="4">4 Star</option>
                                                 <option value="3">3 Star</option>
                                                 <option value="2">2 Star</option>
-                                            </select>
+                                            </BrandSelect>
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Price / Night (₹)</label>
@@ -1232,7 +1233,7 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Location</label>
-                                        <select
+                                        <BrandSelect
                                             value={newActLocation}
                                             onChange={e => setNewActLocation(e.target.value)}
                                             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none text-slate-900 dark:text-white"
@@ -1241,7 +1242,7 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                             {masterLocations.map(loc => (
                                                 <option key={loc.id} value={loc.id}>{loc.name} ({loc.region})</option>
                                             ))}
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
@@ -1267,7 +1268,7 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Category</label>
-                                        <select
+                                        <BrandSelect
                                             value={newActCategory}
                                             onChange={e => setNewActCategory(e.target.value as any)}
                                             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none text-slate-900 dark:text-white"
@@ -1277,7 +1278,7 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                             <option value="Cultural">Cultural</option>
                                             <option value="Leisure">Leisure</option>
                                             <option value="Other">Other</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <button
                                         onClick={handleCreateMasterActivity}
@@ -1306,7 +1307,7 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Vehicle Type</label>
-                                            <select
+                                            <BrandSelect
                                                 value={newTransType}
                                                 onChange={e => setNewTransType(e.target.value as any)}
                                                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none text-slate-900 dark:text-white"
@@ -1316,7 +1317,7 @@ export const ServiceSelector: React.FC<ServiceSelectorProps> = ({ day, onClose, 
                                                 <option value="Tempo Traveller">Tempo Traveller</option>
                                                 <option value="Bus">Bus</option>
                                                 <option value="Hatchback">Hatchback</option>
-                                            </select>
+                                            </BrandSelect>
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Capacity (Seats)</label>

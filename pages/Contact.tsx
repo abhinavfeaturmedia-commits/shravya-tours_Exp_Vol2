@@ -103,12 +103,12 @@ export const Contact: React.FC = () => {
 
                             <div className="space-y-8">
                                 {[
-                                    { icon: 'location_on', title: 'Headquarters', text: COMPANY_ADDRESS, color: 'blue' },
-                                    { icon: 'call', title: 'Phone Support', text: COMPANY_PHONE_DISPLAY, color: 'green' },
-                                    { icon: 'mail', title: 'Email Us', text: COMPANY_EMAIL, color: 'purple' },
+                                    { icon: 'location_on', title: 'Headquarters', text: COMPANY_ADDRESS, iconCls: 'bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400' },
+                                    { icon: 'call', title: 'Phone Support', text: COMPANY_PHONE_DISPLAY, iconCls: 'bg-emerald-50 dark:bg-emerald-900/10 text-emerald-600 dark:text-emerald-400' },
+                                    { icon: 'mail', title: 'Email Us', text: COMPANY_EMAIL, iconCls: 'bg-purple-50 dark:bg-purple-900/10 text-purple-600 dark:text-purple-400' },
                                 ].map((item, i) => (
                                     <div key={i} className="flex items-start gap-6 group">
-                                        <div className={`size-16 rounded-2xl bg-${item.color}-50 dark:bg-${item.color}-900/10 flex items-center justify-center text-${item.color}-600 dark:text-${item.color}-400 shadow-sm group-hover:scale-110 transition-transform duration-300`}>
+                                        <div className={`size-16 rounded-2xl ${item.iconCls} flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform duration-300`}>
                                             <span className="material-symbols-outlined text-3xl">{item.icon}</span>
                                         </div>
                                         <div>

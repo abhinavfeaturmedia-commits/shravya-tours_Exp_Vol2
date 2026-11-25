@@ -13,6 +13,9 @@ import { api } from '../../src/lib/api';
 import { Printer } from 'lucide-react';
 import { BorderBeam } from 'border-beam';
 import { ThinkingOrb } from 'thinking-orbs';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 export const ProposalBuilder: React.FC = () => {
     const { id } = useParams<{ id: string }>(); // If editing
@@ -254,7 +257,13 @@ export const ProposalBuilder: React.FC = () => {
         const lead = leads.find(l => l.id === leadId);
         if (!lead) { toast.error("Lead not found"); return; }
 
-        if (confirm(`Convert "${activeOption.name}" to a confirmed booking? This will create a new Booking entry.`)) {
+        const ok = await confirmAction({
+            title: 'Convert to Booking',
+            message: `Convert "${activeOption.name}" to a confirmed booking? This will create a new Booking entry.`,
+            confirmLabel: 'Convert',
+            tone: 'primary',
+        });
+        if (ok) {
             setIsConverting(true);
             try {
                 // Check for existing customer by email/phone (mirrors Leads conversion logic)
@@ -366,9 +375,9 @@ export const ProposalBuilder: React.FC = () => {
                     </button>
                     <div>
                         <div className="flex items-center gap-2">
-                            <h2 className="text-xl font-bold text-slate-900 dark:text-white font-display text-3xl">
+                            <h1 className="text-xl font-bold text-slate-900 dark:text-white font-display text-3xl">
                                 {id === 'new' ? 'New Proposal' : 'Edit Proposal'}
-                            </h2>
+                            </h1>
                             <span className="px-2 py-0.5 rounded-full text-xs font-black bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
                                 {version}
                             </span>
@@ -489,7 +498,7 @@ export const ProposalBuilder: React.FC = () => {
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Select Lead</label>
-                            <select
+                            <BrandSelect
                                 value={leadId}
                                 onChange={(e) => setLeadId(e.target.value)}
                                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500"
@@ -498,13 +507,13 @@ export const ProposalBuilder: React.FC = () => {
                                 {leads.map(lead => (
                                     <option key={lead.id} value={lead.id}>{lead.name} ({lead.destination})</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
                         </div>
                     </div>
                     <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Status</label>
-                            <select
+                            <BrandSelect
                                 value={status}
                                 onChange={(e) => setStatus(e.target.value as any)}
                                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500"
@@ -513,11 +522,11 @@ export const ProposalBuilder: React.FC = () => {
                                 <option value="Sent">Sent</option>
                                 <option value="Accepted">Accepted</option>
                                 <option value="Rejected">Rejected</option>
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Valid Until</label>
-                            <input
+                            <BrandDatePicker
                                 type="date"
                                 value={validUntil}
                                 onChange={(e) => setValidUntil(e.target.value)}
@@ -635,7 +644,7 @@ export const ProposalBuilder: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Package Tier</label>
-                                        <select
+                                        <BrandSelect
                                             value={activeOption.tier || 'Standard'}
                                             onChange={(e) => updateActiveOption('tier', e.target.value as any)}
                                             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 text-xs"
@@ -645,11 +654,11 @@ export const ProposalBuilder: React.FC = () => {
                                             <option value="Deluxe">Deluxe (4★)</option>
                                             <option value="Luxury">Luxury (5★)</option>
                                             <option value="Custom">Custom</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Hotel Rating</label>
-                                        <select
+                                        <BrandSelect
                                             value={activeOption.hotelStarRating || '3 Star'}
                                             onChange={(e) => updateActiveOption('hotelStarRating', e.target.value as any)}
                                             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-purple-500 text-xs"
@@ -658,7 +667,7 @@ export const ProposalBuilder: React.FC = () => {
                                             <option value="4 Star">4 Star Deluxe</option>
                                             <option value="5 Star">5 Star Luxury</option>
                                             <option value="Boutique / Heritage">Boutique / Heritage</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                 </div>
 

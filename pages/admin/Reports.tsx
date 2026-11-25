@@ -21,6 +21,9 @@ import {
 } from '../../utils/reportExporter';
 import { ReportEntityKey, ReportHistoryItem } from '../../types';
 import { exportConsolidatedGstWorkbook } from '../../src/lib/gstExportEngine';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 export const Reports: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -299,7 +302,13 @@ export const Reports: React.FC = () => {
 
   // Clear all history
   const handleClearAllHistory = async () => {
-    if (!window.confirm('Are you sure you want to clear all report export history?')) return;
+    const ok = await confirmAction({
+      title: 'Clear Export History',
+      message: 'Are you sure you want to clear all report export history?',
+      confirmLabel: 'Clear History',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.reports.clearHistory();
       setHistory([]);
@@ -470,14 +479,14 @@ export const Reports: React.FC = () => {
               <span>REPORT ENTITY</span>
             </label>
             <div className="relative">
-              <select
+              <BrandSelect
                 value={selectedEntity}
                 onChange={(e) => {
                   const val = e.target.value as ReportEntityKey;
                   setSelectedEntity(val);
                   setSearchParams({ entity: val, preset: activePreset });
                 }}
-                className="w-full pl-3 pr-8 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-primary focus:outline-none transition appearance-none"
+                className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-primary focus:outline-none transition"
               >
                 <optgroup label="Sales & CRM">
                   <option value="bookings">Sales & Bookings Report</option>
@@ -499,10 +508,7 @@ export const Reports: React.FC = () => {
                   <option value="staff_members">Staff & Team Roster</option>
                   <option value="audit_logs">Audit Trail & Security Logs</option>
                 </optgroup>
-              </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                ▼
-              </div>
+              </BrandSelect>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
               {currentMeta.description}
@@ -523,7 +529,7 @@ export const Reports: React.FC = () => {
               )}
             </label>
             <div className="relative">
-              <input
+              <BrandDatePicker
                 type="date"
                 value={startDate}
                 onChange={(e) => {
@@ -549,7 +555,7 @@ export const Reports: React.FC = () => {
               )}
             </label>
             <div className="relative">
-              <input
+              <BrandDatePicker
                 type="date"
                 value={endDate}
                 onChange={(e) => {
@@ -585,7 +591,7 @@ export const Reports: React.FC = () => {
             {/* Status Filter */}
             <div className="flex items-center gap-1.5">
               <span className="text-slate-400 font-medium">Status:</span>
-              <select
+              <BrandSelect
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="px-2 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 font-medium"
@@ -598,7 +604,7 @@ export const Reports: React.FC = () => {
                 <option value="NEW">New (Leads)</option>
                 <option value="HOT">Hot (Leads)</option>
                 <option value="CONVERTED">Converted (Leads)</option>
-              </select>
+              </BrandSelect>
             </div>
 
             {/* Keyword Search */}

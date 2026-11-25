@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Booking, SupplierBooking, Vendor } from '../../types';
 import { useData } from '../../context/DataContext';
+import { toast } from 'sonner';
+import { confirmAction } from '../ui/ConfirmDialog';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 
 interface SupplierPaymentModalProps {
     isOpen: boolean;
@@ -54,14 +58,17 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
 
         const numAmount = Number(amount);
         if (isNaN(numAmount) || numAmount <= 0) {
-            alert('Please enter a valid payment amount greater than ₹0.');
+            toast.error('Please enter a valid payment amount greater than ₹0.');
             return;
         }
 
         if (numAmount > balanceDue) {
-            const confirmed = window.confirm(
-                `The amount entered (₹${numAmount.toLocaleString()}) is higher than the remaining balance (₹${balanceDue.toLocaleString()}). Do you wish to proceed?`
-            );
+            const confirmed = await confirmAction({
+                title: 'Overpayment Confirmation',
+                message: `The amount entered (₹${numAmount.toLocaleString()}) is higher than the remaining balance (₹${balanceDue.toLocaleString()}). Do you wish to proceed?`,
+                confirmLabel: 'Proceed Anyway',
+                tone: 'warning',
+            });
             if (!confirmed) return;
         }
 
@@ -298,10 +305,11 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1">
                                 <label className="text-xs font-bold text-slate-600 dark:text-slate-300">Payment Mode</label>
-                                <select
+                                <BrandSelect
                                     value={paymentMethod}
+                                    labelText="Payment Mode"
                                     onChange={e => setPaymentMethod(e.target.value)}
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary font-medium"
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary font-medium text-slate-900 dark:text-white"
                                 >
                                     <option value="UPI">UPI / QR Code</option>
                                     <option value="Bank Transfer">Bank Transfer (NEFT/RTGS/IMPS)</option>
@@ -309,17 +317,17 @@ export const SupplierPaymentModal: React.FC<SupplierPaymentModalProps> = ({
                                     <option value="Cheque">Cheque</option>
                                     <option value="Credit Card">Credit Card</option>
                                     <option value="Net Banking">Net Banking</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div className="space-y-1">
                                 <label className="text-xs font-bold text-slate-600 dark:text-slate-300">Payment Date</label>
-                                <input
-                                    type="date"
+                                <BrandDatePicker
                                     required
+                                    labelText="Payment Date"
                                     value={paymentDate}
                                     onChange={e => setPaymentDate(e.target.value)}
-                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white font-medium"
                                 />
                             </div>
                         </div>

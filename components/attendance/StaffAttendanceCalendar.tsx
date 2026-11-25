@@ -3,6 +3,7 @@ import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 import { StaffBotAvatar } from '../../src/components/ui/StaffBotAvatar';
 import { TodayRosterItem } from '../../types';
+import BrandSelect from '../ui/BrandSelect';
 
 interface StaffAttendanceCalendarProps {
     currentStaffId?: number;
@@ -526,13 +527,13 @@ export const StaffAttendanceCalendar: React.FC<StaffAttendanceCalendarProps> = (
                     {/* Staff Member Selector (Only if Permitted!) */}
                     {canViewAllStaff && viewMode !== 'muster' && (
                         <div className="relative">
-                            <select
+                            <BrandSelect
                                 value={activeStaffId || ''}
                                 onChange={e => {
                                     const val = e.target.value ? Number(e.target.value) : undefined;
                                     if (onSelectStaffId) onSelectStaffId(val);
                                 }}
-                                className="px-3 py-2 pr-8 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer focus:ring-2 focus:ring-indigo-500/20"
+                                className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer focus:ring-2 focus:ring-indigo-500/20"
                             >
                                 <option value={currentStaffId}>My Attendance (Me)</option>
                                 {rosterList.map(r => (
@@ -540,7 +541,7 @@ export const StaffAttendanceCalendar: React.FC<StaffAttendanceCalendarProps> = (
                                         {r.name} • {r.department}
                                     </option>
                                 ))}
-                            </select>
+                            </BrandSelect>
                         </div>
                     )}
 
@@ -898,7 +899,7 @@ export const StaffAttendanceCalendar: React.FC<StaffAttendanceCalendarProps> = (
                                 className="px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                             />
 
-                            <select
+                            <BrandSelect
                                 value={musterDept}
                                 onChange={e => setMusterDept(e.target.value)}
                                 className="px-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold cursor-pointer"
@@ -906,7 +907,7 @@ export const StaffAttendanceCalendar: React.FC<StaffAttendanceCalendarProps> = (
                                 {departmentsList.map(d => (
                                     <option key={d} value={d}>Dept: {d}</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
                         </div>
                     </div>
 

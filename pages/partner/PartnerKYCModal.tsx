@@ -242,7 +242,7 @@ const KYCWizard: React.FC<{ partner: any; onComplete: () => void }> = ({ partner
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+    <div role="dialog" aria-modal="true" aria-label="Complete Your KYC Verification" className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto overscroll-contain">
       <div className="bg-slate-900 border border-white/10 rounded-3xl w-full max-w-lg shadow-2xl my-4">
         {/* Header */}
         <div className="bg-gradient-to-r from-violet-600 to-purple-600 rounded-t-3xl p-6">

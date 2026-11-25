@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -333,7 +336,7 @@ export const PartnerManager: React.FC = () => {
       setBroadcastModal(false);
       showMsg(res.message || 'Campaign broadcast nudge dispatched successfully!');
     } catch (err: any) {
-      alert(err.message || 'Failed to send broadcast nudge');
+      toast.error(err.message || 'Failed to send broadcast nudge');
     } finally {
       setSendingBroadcast(false);
     }
@@ -400,14 +403,17 @@ export const PartnerManager: React.FC = () => {
     showMsg('Partner approved successfully'); load();
   };
   const handleBlock = async (id: string) => {
-    if (!window.confirm('Block this partner?')) return;
+    const ok = await confirmAction({ title: 'Block Partner', message: 'Block this partner? They will lose portal access.', confirmLabel: 'Block', tone: 'warning' });
+    if (!ok) return;
     await adminFetch(`/api/admin/partners/${id}/block`, { method: 'PATCH' });
     showMsg('Partner blocked'); load();
   };
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this partner permanently?')) return;
+  const handleDelete = async (id: string): Promise<boolean> => {
+    const ok = await confirmAction({ title: 'Delete Partner', message: 'Delete this partner permanently?', confirmLabel: 'Delete', tone: 'danger' });
+    if (!ok) return false;
     await adminFetch(`/api/admin/partners/${id}`, { method: 'DELETE' });
     showMsg('Partner deleted'); load();
+    return true;
   };
   const openEdit = (p: any) => {
     setSelectedPartner(p);
@@ -451,7 +457,7 @@ export const PartnerManager: React.FC = () => {
       if (detailPartnerId === selectedPartner.id) {
         loadPartnerDetails(selectedPartner.id);
       }
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
   };
 
@@ -471,7 +477,7 @@ export const PartnerManager: React.FC = () => {
       await adminFetch('/api/admin/partners', { method: 'POST', body: JSON.stringify(payload) });
       setAddModal(false); showMsg('Partner added successfully'); load();
       setAddForm({ name: '', email: '', password: '', phone: '', companyName: '', location: '', commissionType: 'Percentage', commissionValue: 5, cabCommissionType: 'Flat_Amount', cabCommissionValue: 300, busCommissionType: 'Flat_Amount', busCommissionValue: 150, trainCommissionType: 'Flat_Amount', trainCommissionValue: 100, flightCommissionType: 'Flat_Amount', flightCommissionValue: 200, status: 'Active', bankName: '', accountHolderName: '', accountNumber: '', ifscCode: '', branchName: '' });
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
   };
 
@@ -508,7 +514,7 @@ export const PartnerManager: React.FC = () => {
       showMsg('Commission updated successfully');
       load();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setSaving(false);
     }
@@ -605,10 +611,10 @@ export const PartnerManager: React.FC = () => {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search partners…"
                 className="w-full h-9 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-white/10 rounded-xl pl-9 pr-3 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/40 transition-all" />
             </div>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            <BrandSelect value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
               className="h-9 bg-white dark:bg-slate-800/60 border border-slate-200 dark:border-white/10 rounded-xl px-3 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500/40 transition-all">
               <option>All</option><option>Active</option><option>Pending Approval</option><option>Blocked</option>
-            </select>
+            </BrandSelect>
           </div>
         )}
       </div>
@@ -726,17 +732,17 @@ export const PartnerManager: React.FC = () => {
             <form onSubmit={saveEdit} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Partner Status</label>
-                <select value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))} className={inputClass}>
+                <BrandSelect value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))} className={inputClass}>
                   <option>Pending Approval</option><option>Active</option><option>Blocked</option>
-                </select>
+                </BrandSelect>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Commission Type</label>
-                  <select value={editForm.commissionType} onChange={e => setEditForm(p => ({ ...p, commissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={editForm.commissionType} onChange={e => setEditForm(p => ({ ...p, commissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -749,10 +755,10 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Cab Commission Type</label>
-                  <select value={editForm.cabCommissionType} onChange={e => setEditForm(p => ({ ...p, cabCommissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={editForm.cabCommissionType} onChange={e => setEditForm(p => ({ ...p, cabCommissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -765,10 +771,10 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Bus Commission Type</label>
-                  <select value={editForm.busCommissionType} onChange={e => setEditForm(p => ({ ...p, busCommissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={editForm.busCommissionType} onChange={e => setEditForm(p => ({ ...p, busCommissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -781,10 +787,10 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Train Commission Type</label>
-                  <select value={editForm.trainCommissionType} onChange={e => setEditForm(p => ({ ...p, trainCommissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={editForm.trainCommissionType} onChange={e => setEditForm(p => ({ ...p, trainCommissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -797,10 +803,10 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Flight Commission Type</label>
-                  <select value={editForm.flightCommissionType} onChange={e => setEditForm(p => ({ ...p, flightCommissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={editForm.flightCommissionType} onChange={e => setEditForm(p => ({ ...p, flightCommissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -904,20 +910,20 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Initial Status</label>
-                  <select value={addForm.status} onChange={e => setAddForm(p => ({ ...p, status: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={addForm.status} onChange={e => setAddForm(p => ({ ...p, status: e.target.value }))} className={inputClass}>
                     <option>Active</option>
                     <option>Pending Approval</option>
                     <option>Blocked</option>
-                  </select>
+                  </BrandSelect>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Commission Type</label>
-                  <select value={addForm.commissionType} onChange={e => setAddForm(p => ({ ...p, commissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={addForm.commissionType} onChange={e => setAddForm(p => ({ ...p, commissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -930,10 +936,10 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Cab Commission Type</label>
-                  <select value={addForm.cabCommissionType} onChange={e => setAddForm(p => ({ ...p, cabCommissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={addForm.cabCommissionType} onChange={e => setAddForm(p => ({ ...p, cabCommissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -946,10 +952,10 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Bus Commission Type</label>
-                  <select value={addForm.busCommissionType} onChange={e => setAddForm(p => ({ ...p, busCommissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={addForm.busCommissionType} onChange={e => setAddForm(p => ({ ...p, busCommissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -962,10 +968,10 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Train Commission Type</label>
-                  <select value={addForm.trainCommissionType} onChange={e => setAddForm(p => ({ ...p, trainCommissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={addForm.trainCommissionType} onChange={e => setAddForm(p => ({ ...p, trainCommissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -978,10 +984,10 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Flight Commission Type</label>
-                  <select value={addForm.flightCommissionType} onChange={e => setAddForm(p => ({ ...p, flightCommissionType: e.target.value }))} className={inputClass}>
+                  <BrandSelect value={addForm.flightCommissionType} onChange={e => setAddForm(p => ({ ...p, flightCommissionType: e.target.value }))} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -1065,7 +1071,7 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">Type</label>
-                  <select value={editCommForm.commissionType} onChange={e => {
+                  <BrandSelect value={editCommForm.commissionType} onChange={e => {
                     const newType = e.target.value;
                     const bookingAmt = Number(selectedCommission.booking_amount) || 0;
                     const rate = editCommForm.commissionRate;
@@ -1078,7 +1084,7 @@ export const PartnerManager: React.FC = () => {
                   }} className={inputClass}>
                     <option value="Percentage">Percentage (%)</option>
                     <option value="Flat_Amount">Flat Amount (₹)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-widest">
@@ -1191,7 +1197,7 @@ export const PartnerManager: React.FC = () => {
                           <span className="material-symbols-outlined text-[14px]">block</span>Block Partner
                         </button>
                       )}
-                      <button onClick={async () => { if (window.confirm('Delete this partner permanently?')) { await handleDelete(detailData.partner.id); setDetailPartnerId(null); } }} className="flex items-center gap-1 px-3 py-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg text-xs font-bold transition-all active:scale-95 ml-auto">
+                      <button onClick={async () => { if (await handleDelete(detailData.partner.id)) setDetailPartnerId(null); }} className="flex items-center gap-1 px-3 py-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg text-xs font-bold transition-all active:scale-95 ml-auto">
                         <span className="material-symbols-outlined text-[14px]">delete</span>Delete Account
                       </button>
                     </div>
@@ -1378,7 +1384,7 @@ export const PartnerManager: React.FC = () => {
                                               </button>
                                             )}
                                             {(c.status === 'Pending' || c.status === 'Approved') && (
-                                              <button onClick={async () => { if (window.confirm('Reject this commission?')) { await handleCommission(c.id, 'reject'); loadPartnerDetails(detailPartnerId); } }} className="px-2 py-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 text-[10px] font-bold rounded">Reject</button>
+                                              <button onClick={async () => { const ok = await confirmAction({ title: 'Reject Commission', message: 'Reject this commission?', confirmLabel: 'Reject', tone: 'danger' }); if (ok) { await handleCommission(c.id, 'reject'); loadPartnerDetails(detailPartnerId); } }} className="px-2 py-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 text-[10px] font-bold rounded">Reject</button>
                                             )}
                                             {c.status === 'PaidPending' && (
                                               <span className="text-[10px] text-slate-400 font-semibold px-2 py-1">In Verification</span>
@@ -1496,7 +1502,7 @@ export const PartnerManager: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Target Audience</label>
-                  <select
+                  <BrandSelect
                     value={broadcastForm.targetAudience}
                     onChange={e => setBroadcastForm({ ...broadcastForm, targetAudience: e.target.value as any })}
                     className={inputClass}
@@ -1504,7 +1510,7 @@ export const PartnerManager: React.FC = () => {
                     <option value="active">Active Associates Only</option>
                     <option value="all">All Registered Associates</option>
                     <option value="unsigned_contract">Unsigned Contract Only</option>
-                  </select>
+                  </BrandSelect>
                 </div>
 
                 <div>

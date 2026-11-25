@@ -4,6 +4,7 @@ import { usePartnerAuth } from '../../context/PartnerAuthContext';
 import { copyToClipboard } from '../../utils/clipboard';
 import { toast } from '../../components/ui/Toast';
 import { formatTripDuration, getPackagePricingInfo } from '../../utils/packageUtils';
+import { BrandSelect } from '../../components/ui/BrandSelect';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -105,6 +106,15 @@ export const PartnerPackages: React.FC = () => {
     fetchActivePackages();
   }, []);
 
+  useEffect(() => {
+    if (!activePkg) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActivePkg(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activePkg]);
+
   const fetchActivePackages = async () => {
     try {
       setLoading(true);
@@ -179,7 +189,7 @@ export const PartnerPackages: React.FC = () => {
   // Copy referral link with affiliate query tracking
   const copyReferralLink = (pkg: any) => {
     if (!partner) return;
-    const referralUrl = `${window.location.origin}${window.location.pathname}#/packages/${pkg.id}?ref=${partner.id}`;
+    const referralUrl = `${window.location.origin}/packages/${pkg.id}?ref=${partner.id}`;
     copyToClipboard(referralUrl).then(success => {
       if (success) {
         setCopiedPkgId(pkg.id);
@@ -256,13 +266,15 @@ export const PartnerPackages: React.FC = () => {
           {/* Theme Type */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-white/50 uppercase">Category</label>
-            <select
+            <BrandSelect
+              tone="dark"
+              labelText="Category"
               value={selectedTheme}
               onChange={e => setSelectedTheme(e.target.value)}
               className="w-full h-10 bg-slate-900 border border-white/10 rounded-xl px-3 text-white text-xs font-medium focus:outline-none focus:ring-1 focus:ring-violet-500"
             >
               {themes.map(t => <option key={t} value={t}>{t === 'All' ? 'All Experiences' : t}</option>)}
-            </select>
+            </BrandSelect>
           </div>
 
           {/* Price Slider */}
@@ -394,7 +406,7 @@ export const PartnerPackages: React.FC = () => {
                       {(() => {
                         const pricing = getPackagePricingInfo(pkg);
                         return (
-                          <div className="flex items-center justify-between border-t border-white/5 pt-4 mt-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/5 pt-4 mt-4">
                             <div className="space-y-0.5">
                               <span className="text-[10px] text-white/40 uppercase tracking-wider block font-bold">Starting Rate</span>
                               <div className="flex items-baseline gap-1">
@@ -405,7 +417,7 @@ export const PartnerPackages: React.FC = () => {
                               </div>
                               <span className="text-[10px] text-white/50 block font-medium">Total: {pricing.totalFormatted} for {pricing.paxCount} pax</span>
                             </div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               {/* Copy Link Button */}
                               <button
                                 onClick={() => copyReferralLink(pkg)}
@@ -450,7 +462,7 @@ export const PartnerPackages: React.FC = () => {
 
       {/* Flyout Drawer for Itinerary / Quick View (Right Side Panel) */}
       {activePkg && (
-        <div className="fixed inset-0 z-[200] flex justify-end">
+        <div role="dialog" aria-modal="true" aria-label={activePkg.title || 'Package Quick View'} className="fixed inset-0 z-[200] flex justify-end">
           {/* Drawer Backdrop */}
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in"
@@ -466,6 +478,8 @@ export const PartnerPackages: React.FC = () => {
                 <h2 className="text-xl font-black text-white leading-tight">{activePkg.title}</h2>
               </div>
               <button
+                type="button"
+                aria-label="Close package quick view"
                 onClick={() => setActivePkg(null)}
                 className="size-9 rounded-full bg-white/5 hover:bg-white/10 text-white flex items-center justify-center border border-white/10 transition-colors"
               >
@@ -474,7 +488,7 @@ export const PartnerPackages: React.FC = () => {
             </div>
 
             {/* Scrollable Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
+            <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-8">
               {/* Cover Image */}
               <div className="h-56 rounded-2xl overflow-hidden relative shrink-0 border border-white/10">
                 <img

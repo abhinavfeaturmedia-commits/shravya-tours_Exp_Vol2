@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../src/lib/api';
 import { useSettings } from '../../context/SettingsContext';
+import { BrandSelect } from '../ui/BrandSelect';
 
 export interface SendEmailDetails {
   clientName?: string;
@@ -173,21 +174,22 @@ export const SendEmailModal: React.FC<SendEmailModalProps> = ({
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
                   Email Action Type
                 </label>
-                <select
+                <BrandSelect
                   value={selectedTemplate}
+                  labelText="Email Action Type"
                   onChange={e => {
                     const val = e.target.value as any;
                     setSelectedTemplate(val);
                     if (val === 'invoice') setSmtpType('billing');
                     else setSmtpType('general');
                   }}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary font-medium"
                 >
                   <option value="custom">✍️ Custom Composed Message</option>
                   <option value="agent_intro">👤 Resend Agent Introduction Email</option>
                   <option value="proposal">📄 Send / Resend Proposal Link</option>
                   <option value="invoice">🧾 Send / Resend Tax Invoice & Booking Summary</option>
-                </select>
+                </BrandSelect>
               </div>
             )}
 

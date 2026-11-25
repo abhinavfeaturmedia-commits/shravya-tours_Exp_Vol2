@@ -13,6 +13,7 @@ import {
     Save, ChevronLeft, ChevronRight, Sparkles, CalendarDays, Users, Tag, HelpCircle, Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { confirmAction } from '../ui/ConfirmDialog';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ActivePanel = 'board' | 'details' | 'pricing' | 'review' | 'faqs';
@@ -163,8 +164,14 @@ const WizardContent: React.FC = () => {
                 {/* Right: Actions */}
                 <div className="ml-auto flex items-center gap-2 shrink-0">
                     <button
-                        onClick={() => {
-                            if (window.confirm("Are you sure you want to start a new itinerary? This will clear all current unsaved data.")) {
+                        onClick={async () => {
+                            const ok = await confirmAction({
+                                title: 'Start New Itinerary',
+                                message: 'Are you sure you want to start a new itinerary? This will clear all current unsaved data.',
+                                confirmLabel: 'Clear Draft',
+                                tone: 'warning',
+                            });
+                            if (ok) {
                                 clearDraft();
                             }
                         }}

@@ -12,6 +12,9 @@ import { DataImportModal } from '../../src/components/admin/DataImportModal';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { normalisePhone } from '../../utils/phoneUtils';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 // ─── Booking Match Helper ─────────────────────────────────────────────────────
 // Matches bookings to a customer using: DB foreign-key (strict) → email → phone.
@@ -447,7 +450,13 @@ export const Customers: React.FC = () => {
 
     // Bulk Delete
     const handleBulkDelete = async () => {
-        if (!confirm(`Are you sure you want to permanently delete ${selectedIds.size} selected customer(s)? This cannot be undone.`)) return;
+        const ok = await confirmAction({
+            title: 'Delete Selected Customers',
+            message: `Are you sure you want to permanently delete ${selectedIds.size} selected customer(s)? This cannot be undone.`,
+            confirmLabel: 'Delete All',
+            tone: 'danger',
+        });
+        if (!ok) return;
         const toastId = toast.loading('Deleting selected customers...');
         try {
             const idsToDelete = Array.from(selectedIds);
@@ -644,7 +653,7 @@ export const Customers: React.FC = () => {
                             </span>
 
                             {/* Location Filter */}
-                            <select
+                            <BrandSelect
                                 value={locationFilter}
                                 onChange={e => { setLocationFilter(e.target.value); setCurrentPage(1); }}
                                 className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-primary"
@@ -653,10 +662,10 @@ export const Customers: React.FC = () => {
                                 {uniqueLocations.map(loc => (
                                     <option key={loc} value={loc}>{loc}</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
 
                             {/* Status Filter */}
-                            <select
+                            <BrandSelect
                                 value={statusFilter}
                                 onChange={e => { setStatusFilter(e.target.value as any); setCurrentPage(1); }}
                                 className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-primary"
@@ -664,10 +673,10 @@ export const Customers: React.FC = () => {
                                 <option value="All">All Status</option>
                                 <option value="Active">Active</option>
                                 <option value="Inactive">Inactive</option>
-                            </select>
+                            </BrandSelect>
 
                             {/* Date Filter */}
-                            <select
+                            <BrandSelect
                                 value={dateFilter}
                                 onChange={e => { setDateFilter(e.target.value as any); setCurrentPage(1); }}
                                 className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-primary"
@@ -676,7 +685,7 @@ export const Customers: React.FC = () => {
                                 <option value="Month">Joined This Month</option>
                                 <option value="90Days">Active in Last 90 Days</option>
                                 <option value="Year">Joined This Year</option>
-                            </select>
+                            </BrandSelect>
 
                             {/* Reset Filters */}
                             {(locationFilter !== 'All' || statusFilter !== 'All' || dateFilter !== 'All' || search) && (
@@ -1078,8 +1087,14 @@ export const Customers: React.FC = () => {
                                                             </button>
                                                             {hasPermission('customers', 'manage') && (
                                                                 <button
-                                                                    onClick={() => {
-                                                                        if (confirm(`Are you sure you want to permanently delete ${customer.name}? This cannot be undone.`)) {
+                                                                    onClick={async () => {
+                                                                        const ok = await confirmAction({
+                                                                            title: 'Delete Customer',
+                                                                            message: `Are you sure you want to permanently delete ${customer.name}? This cannot be undone.`,
+                                                                            confirmLabel: 'Delete Permanently',
+                                                                            tone: 'danger',
+                                                                        });
+                                                                        if (ok) {
                                                                             const toastId = toast.loading('Deleting customer...');
                                                                             deleteCustomer(customer.id)
                                                                                 .then(() => {
@@ -1600,8 +1615,9 @@ const CustomerDetailsDrawer: React.FC<{
         toast.success('Note added');
     };
 
-    const handleDeleteNote = (noteId: string) => {
-        if (!confirm('Delete this note?')) return;
+    const handleDeleteNote = async (noteId: string) => {
+        const ok = await confirmAction({ title: 'Delete Note', message: 'Delete this note?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         const updatedNotes = (customer.notes || []).filter(n => n.id !== noteId);
         updateCustomer(customer.id, { notes: updatedNotes });
         toast.success('Note deleted');
@@ -2309,14 +2325,14 @@ const AddEditCustomerModal: React.FC<{
                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 sm:gap-3">
                         <div className="sm:col-span-1">
                             <label className="font-bold uppercase text-slate-500 block mb-1">Prefix</label>
-                            <select {...register('prefix')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
+                            <BrandSelect {...register('prefix')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
                                 <option value="">None</option>
                                 <option value="Mr.">Mr.</option>
                                 <option value="Ms.">Ms.</option>
                                 <option value="Mrs.">Mrs.</option>
                                 <option value="Dr.">Dr.</option>
                                 <option value="Prof.">Prof.</option>
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div className="sm:col-span-3">
                             <label className="font-bold uppercase text-slate-500 block mb-1">Full Name *</label>
@@ -2334,7 +2350,7 @@ const AddEditCustomerModal: React.FC<{
                         </div>
                         <div>
                             <label className="font-bold uppercase text-slate-500 block mb-1">Date of Birth</label>
-                            <input type="date" {...register('dob')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
+                            <BrandDatePicker type="date" {...register('dob')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white" />
                         </div>
                     </div>
 
@@ -2378,18 +2394,18 @@ const AddEditCustomerModal: React.FC<{
                         </div>
                         <div>
                             <label className="font-bold uppercase text-slate-500 block mb-1">Type</label>
-                            <select {...register('type')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
+                            <BrandSelect {...register('type')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
                                 <option value="New">New</option>
                                 <option value="Returning">Returning</option>
                                 <option value="VIP">VIP</option>
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div>
                             <label className="font-bold uppercase text-slate-500 block mb-1">Status</label>
-                            <select {...register('status')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
+                            <BrandSelect {...register('status')} className="w-full rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-2.5 font-bold outline-none focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white">
                                 <option value="Active">Active</option>
                                 <option value="Inactive">Inactive</option>
-                            </select>
+                            </BrandSelect>
                         </div>
                     </div>
 

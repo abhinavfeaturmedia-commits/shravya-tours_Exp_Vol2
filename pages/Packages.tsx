@@ -6,6 +6,8 @@ import { OptimizedImage } from '../components/ui/OptimizedImage';
 import { getLocationName, formatPriceCompact, getPackagePricingInfo, formatTripDuration, formatNightsDaysCode, getPackageRoute, getPackageReviewCount } from '../utils/packageUtils';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 import { VoiceBeam, useMicrophone } from 'voice-glow';
+import { toast } from 'sonner';
+import { BrandSelect } from '../components/ui/BrandSelect';
 
 export const Packages: React.FC = () => {
   const { packages, masterLocations, trendingDestinations } = useData();
@@ -106,7 +108,7 @@ export const Packages: React.FC = () => {
   const toggleVoiceSearch = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Voice search is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      toast.error("Voice search is not supported in this browser. Please use Chrome, Edge, or Safari.");
       return;
     }
 
@@ -285,19 +287,17 @@ export const Packages: React.FC = () => {
             {/* Desktop Sort */}
             <div className="hidden lg:flex items-center gap-3">
               <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Sort By</span>
-              <div className="relative group">
-                <select
-                  value={sortOption}
-                  onChange={(e) => setSortOption(e.target.value)}
-                  className="appearance-none bg-white dark:bg-[#151d29] border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-sm font-bold rounded-full pl-5 pr-10 py-3 focus:ring-2 focus:ring-primary/50 outline-none cursor-pointer shadow-sm hover:shadow-md transition-all"
-                >
-                  <option>Recommended</option>
-                  <option>Price: Low to High</option>
-                  <option>Price: High to Low</option>
-                  <option>Duration</option>
-                </select>
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">sort</span>
-              </div>
+              <BrandSelect
+                value={sortOption}
+                onChange={(e) => setSortOption(e.target.value)}
+                labelText="Sort Packages"
+                className="bg-white dark:bg-[#151d29] border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white text-sm font-bold rounded-full pl-5 pr-4 py-3 min-w-[200px] focus:ring-2 focus:ring-primary/50 outline-none shadow-sm hover:shadow-md transition-all"
+              >
+                <option>Recommended</option>
+                <option>Price: Low to High</option>
+                <option>Price: High to Low</option>
+                <option>Duration</option>
+              </BrandSelect>
             </div>
           </div>
 
@@ -320,16 +320,17 @@ export const Packages: React.FC = () => {
                 </button>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Sort:</span>
-                  <select
+                  <BrandSelect
                     value={sortOption}
                     onChange={(e) => setSortOption(e.target.value)}
-                    className="appearance-none bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs sm:text-sm font-bold rounded-full px-4 py-2.5 focus:ring-0 outline-none shadow-sm cursor-pointer"
+                    labelText="Sort Packages"
+                    className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-xs sm:text-sm font-bold rounded-full px-4 py-2.5 focus:ring-0 outline-none shadow-sm"
                   >
                     <option>Recommended</option>
                     <option>Price: Low to High</option>
                     <option>Price: High to Low</option>
                     <option>Duration</option>
-                  </select>
+                  </BrandSelect>
                 </div>
               </div>
 

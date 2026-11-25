@@ -239,36 +239,36 @@ export const CustomerRegister: React.FC = () => {
 
               {/* Full Name */}
               <div>
-                <label className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
+                <label htmlFor="cust-reg-name" className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
                   Full Name *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }}>person</span>
-                  <input name="name" type="text" required value={form.name} onChange={handleChange}
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }} aria-hidden="true">person</span>
+                  <input id="cust-reg-name" name="name" type="text" autoComplete="name" enterKeyHint="next" required value={form.name} onChange={handleChange}
                     placeholder="Rahul Sharma" autoFocus style={inputStyle} onFocus={handleFocus} onBlur={handleBlur} />
                 </div>
               </div>
 
               {/* Email */}
               <div>
-                <label className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
+                <label htmlFor="cust-reg-email" className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
                   Email Address *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }}>mail</span>
-                  <input name="email" type="email" required value={form.email} onChange={handleChange}
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }} aria-hidden="true">mail</span>
+                  <input id="cust-reg-email" name="email" type="email" autoComplete="email" spellCheck={false} enterKeyHint="next" required value={form.email} onChange={handleChange}
                     placeholder="you@example.com" style={inputStyle} onFocus={handleFocus} onBlur={handleBlur} />
                 </div>
               </div>
 
               {/* Phone */}
               <div>
-                <label className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
+                <label htmlFor="cust-reg-phone" className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
                   Phone Number *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }}>call</span>
-                  <input name="phone" type="tel" required value={form.phone} onChange={handleChange}
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }} aria-hidden="true">call</span>
+                  <input id="cust-reg-phone" name="phone" type="tel" autoComplete="tel" enterKeyHint="next" required value={form.phone} onChange={handleChange}
                     placeholder="+91 9XXXXXXXXX" style={inputStyle} onFocus={handleFocus} onBlur={handleBlur} />
                 </div>
               </div>
@@ -276,18 +276,22 @@ export const CustomerRegister: React.FC = () => {
               {/* WhatsApp */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-semibold uppercase tracking-widest" style={{ color: '#64748B' }}>
+                  <label htmlFor="cust-reg-whatsapp" className="block text-xs font-semibold uppercase tracking-widest" style={{ color: '#64748B' }}>
                     WhatsApp Number
                   </label>
                   <label className="flex items-center gap-1.5 cursor-pointer">
-                    <div
-                      onClick={() => {
-                        setSameAsPhone(!sameAsPhone);
-                        if (!sameAsPhone) setForm(prev => ({ ...prev, whatsapp: prev.phone }));
-                      }}
-                      className="relative inline-flex items-center cursor-pointer"
-                    >
-                      <input type="checkbox" checked={sameAsPhone} onChange={() => {}} className="sr-only" />
+                    <div className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sameAsPhone}
+                        onChange={() => {
+                          const next = !sameAsPhone;
+                          setSameAsPhone(next);
+                          if (next) setForm(prev => ({ ...prev, whatsapp: prev.phone }));
+                        }}
+                        aria-label="WhatsApp number same as phone"
+                        className="sr-only"
+                      />
                       <div
                         className="w-9 h-5 rounded-full transition-all relative"
                         style={{ background: sameAsPhone ? '#C9732A' : '#E2E8F0' }}
@@ -299,10 +303,10 @@ export const CustomerRegister: React.FC = () => {
                   </label>
                 </div>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }}>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }} aria-hidden="true">
                     chat
                   </span>
-                  <input name="whatsapp" type="tel" value={sameAsPhone ? form.phone : form.whatsapp} onChange={handleChange}
+                  <input id="cust-reg-whatsapp" name="whatsapp" type="tel" autoComplete="tel" enterKeyHint="done" value={sameAsPhone ? form.phone : form.whatsapp} onChange={handleChange}
                     disabled={sameAsPhone}
                     placeholder="+91 9XXXXXXXXX"
                     style={{ ...inputStyle, opacity: sameAsPhone ? 0.6 : 1, cursor: sameAsPhone ? 'not-allowed' : 'text' }}
@@ -343,29 +347,29 @@ export const CustomerRegister: React.FC = () => {
 
               {/* Password */}
               <div>
-                <label className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
+                <label htmlFor="cust-reg-password" className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
                   Create Password *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }}>lock</span>
-                  <input name="password" type={showPass ? 'text' : 'password'} required value={form.password}
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }} aria-hidden="true">lock</span>
+                  <input id="cust-reg-password" name="password" type={showPass ? 'text' : 'password'} autoComplete="new-password" enterKeyHint="next" required value={form.password}
                     onChange={handleChange} placeholder="Min. 6 characters" autoFocus
                     style={{ ...inputStyle, paddingRight: '48px' }} onFocus={handleFocus} onBlur={handleBlur} />
-                  <button type="button" onClick={() => setShowPass(!showPass)}
+                  <button type="button" onClick={() => setShowPass(!showPass)} aria-label={showPass ? 'Hide password' : 'Show password'}
                     className="absolute right-4 top-1/2 -translate-y-1/2" style={{ color: '#C4B5A0' }}>
-                    <span className="material-symbols-outlined text-[20px]">{showPass ? 'visibility_off' : 'visibility'}</span>
+                    <span className="material-symbols-outlined text-[20px]" aria-hidden="true">{showPass ? 'visibility_off' : 'visibility'}</span>
                   </button>
                 </div>
               </div>
 
               {/* Confirm Password */}
               <div>
-                <label className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
+                <label htmlFor="cust-reg-confirm-password" className="block text-xs font-semibold mb-2 uppercase tracking-widest" style={{ color: '#64748B' }}>
                   Confirm Password *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }}>lock_clock</span>
-                  <input name="confirmPassword" type={showPass ? 'text' : 'password'} required value={form.confirmPassword}
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-[20px]" style={{ color: '#C4B5A0' }} aria-hidden="true">lock_clock</span>
+                  <input id="cust-reg-confirm-password" name="confirmPassword" type={showPass ? 'text' : 'password'} autoComplete="new-password" enterKeyHint="done" required value={form.confirmPassword}
                     onChange={handleChange} placeholder="Repeat password"
                     style={{ ...inputStyle, borderColor: form.confirmPassword && form.confirmPassword !== form.password ? '#FCA5A5' : '#EDE8DF' }}
                     onFocus={handleFocus} onBlur={handleBlur} />

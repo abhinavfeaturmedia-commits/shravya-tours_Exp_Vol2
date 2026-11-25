@@ -84,6 +84,22 @@ function exportToCSV(rows: any[], filename: string) {
 }
 
 // ── Drill-down Modal ─────────────────────────────────────────────────────────
+const MEMBER_AVATAR_STYLES: Record<string, string> = {
+    blue: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+    indigo: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400',
+    purple: 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400',
+    emerald: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400',
+    green: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400',
+    amber: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400',
+    orange: 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400',
+    rose: 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400',
+    red: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400',
+    teal: 'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400',
+    cyan: 'bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400',
+    pink: 'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400',
+    slate: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+};
+const getMemberAvatarCls = (color?: string) => MEMBER_AVATAR_STYLES[color || 'blue'] || MEMBER_AVATAR_STYLES.blue;
 
 const DrillDownModal: React.FC<{ member: any; onClose: () => void }> = ({ member, onClose }) => {
     const donutData = [
@@ -101,7 +117,7 @@ const DrillDownModal: React.FC<{ member: any; onClose: () => void }> = ({ member
                 {/* Header */}
                 <div className="sticky top-0 bg-white dark:bg-[#1A2633] flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800 rounded-t-3xl z-10">
                     <div className="flex items-center gap-4">
-                        <div className={`size-14 rounded-2xl flex items-center justify-center font-black text-lg bg-${member.color || 'blue'}-100 text-${member.color || 'blue'}-600 dark:bg-${member.color || 'blue'}-900/30 dark:text-${member.color || 'blue'}-400`}>
+                        <div className={`size-14 rounded-2xl flex items-center justify-center font-black text-lg ${getMemberAvatarCls(member.color)}`}>
                             {member.initials || member.name.charAt(0)}
                         </div>
                         <div>
@@ -455,7 +471,7 @@ export const TeamPerformance: React.FC = () => {
                                         {/* Card Header */}
                                         <div className="flex items-start justify-between mb-4">
                                             <div className="flex items-center gap-3">
-                                                <div className={`size-12 rounded-2xl flex items-center justify-center font-black text-base bg-${member.color || 'blue'}-100 text-${member.color || 'blue'}-600 dark:bg-${member.color || 'blue'}-900/30 dark:text-${member.color || 'blue'}-400 shrink-0`}>
+                                                <div className={`size-12 rounded-2xl flex items-center justify-center font-black text-base ${getMemberAvatarCls(member.color)} shrink-0`}>
                                                     {member.initials || member.name.charAt(0)}
                                                 </div>
                                                 <div>
@@ -539,7 +555,7 @@ export const TeamPerformance: React.FC = () => {
                             {metrics.filter(m => m.stalledLeads > 0).map(m => (
                                 <div key={m.id} className="bg-white dark:bg-[#1A2633] p-5 cursor-pointer hover:bg-red-50/50 dark:hover:bg-red-900/10 transition-colors" onClick={() => setSelectedMember(m)}>
                                     <div className="flex items-center gap-3 mb-3">
-                                        <div className={`size-8 rounded-xl flex items-center justify-center text-xs font-black bg-${m.color || 'blue'}-100 text-${m.color || 'blue'}-600`}>{m.initials}</div>
+                                        <div className={`size-8 rounded-xl flex items-center justify-center text-xs font-black ${getMemberAvatarCls(m.color)}`}>{m.initials}</div>
                                         <div>
                                             <p className="font-bold text-slate-900 dark:text-white text-sm">{m.name}</p>
                                             <p className="text-[10px] text-red-500 font-bold">{m.stalledLeads} stalled lead{m.stalledLeads > 1 ? 's' : ''}</p>
@@ -579,7 +595,7 @@ export const TeamPerformance: React.FC = () => {
                                     .sort((a, b) => (a.avgConversionDays as number) - (b.avgConversionDays as number))
                                     .map(m => (
                                         <div key={m.id} className="flex items-center gap-3">
-                                            <div className={`size-8 rounded-xl flex items-center justify-center text-xs font-black bg-${m.color || 'blue'}-100 text-${m.color || 'blue'}-600 shrink-0`}>{m.initials}</div>
+                                            <div className={`size-8 rounded-xl flex items-center justify-center text-xs font-black ${getMemberAvatarCls(m.color)} shrink-0`}>{m.initials}</div>
                                             <div className="flex-1">
                                                 <div className="flex justify-between text-xs font-bold mb-1.5">
                                                     <span className="text-slate-700 dark:text-slate-200">{m.name}</span>
@@ -609,7 +625,7 @@ export const TeamPerformance: React.FC = () => {
                             {[...metrics].sort((a, b) => b.actualRevenue - a.actualRevenue).map((m, i) => (
                                 <div key={m.id} className="flex items-center gap-3" onClick={() => setSelectedMember(m)} style={{ cursor: 'pointer' }}>
                                     <span className={`text-sm font-black w-5 shrink-0 ${i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : i === 2 ? 'text-amber-700' : 'text-slate-300 dark:text-slate-600'}`}>#{i + 1}</span>
-                                    <div className={`size-8 rounded-xl flex items-center justify-center text-xs font-black bg-${m.color || 'blue'}-100 text-${m.color || 'blue'}-600 shrink-0`}>{m.initials}</div>
+                                    <div className={`size-8 rounded-xl flex items-center justify-center text-xs font-black ${getMemberAvatarCls(m.color)} shrink-0`}>{m.initials}</div>
                                     <div className="flex-1">
                                         <div className="flex justify-between text-xs font-bold mb-1.5">
                                             <span className="text-slate-700 dark:text-slate-200 flex items-center gap-1.5">

@@ -3,8 +3,16 @@ import { Link } from 'react-router-dom';
 import { api } from '../../src/lib/api';
 import { LeadLog } from '../../types';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
+import { toast } from 'sonner';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+const STAT_ACTIVE_STYLES: Record<string, string> = {
+  violet: 'bg-violet-600/20 border-violet-500/40 shadow-lg shadow-black/20',
+  blue: 'bg-blue-600/20 border-blue-500/40 shadow-lg shadow-black/20',
+  amber: 'bg-amber-600/20 border-amber-500/40 shadow-lg shadow-black/20',
+  emerald: 'bg-emerald-600/20 border-emerald-500/40 shadow-lg shadow-black/20',
+};
 
 const statusColor: Record<string, string> = {
   New: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
@@ -35,6 +43,15 @@ export const PartnerLeads: React.FC = () => {
   const [fetchingLogs, setFetchingLogs] = useState(false);
 
   useEffect(() => { fetchLeads(); }, []);
+
+  useEffect(() => {
+    if (!selectedLead) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedLead(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedLead]);
 
   const fetchLeads = async () => {
     try {
@@ -68,7 +85,7 @@ export const PartnerLeads: React.FC = () => {
       await api.sendPartnerLeadMessage(selectedLead.id, messageText);
       fetchLogs(selectedLead.id);
     } catch (err: any) {
-      alert(err.message || 'Failed to send message');
+      toast.error(err.message || 'Failed to send message');
     }
   };
 
@@ -95,10 +112,10 @@ export const PartnerLeads: React.FC = () => {
           { label: 'In Follow-up', value: leads.filter(l => l.status === 'Hot' || l.status === 'Warm' || l.status === 'Offer Sent').length, filter: 'Hot', color: 'amber', icon: 'local_fire_department' },
           { label: 'Converted', value: leads.filter(l => l.booking_id).length, filter: 'converted', color: 'emerald', icon: 'verified' },
         ].map(s => (
-          <button key={s.filter} onClick={() => setFilter(s.filter)}
+          <button key={s.filter} type="button" onClick={() => setFilter(s.filter)}
             className={`p-4 rounded-2xl border text-left transition-all duration-300 backdrop-blur-xl relative overflow-hidden group ${
               filter === s.filter
-                ? `bg-${s.color}-600/20 border-${s.color}-500/40 shadow-lg shadow-black/20`
+                ? (STAT_ACTIVE_STYLES[s.color] || STAT_ACTIVE_STYLES.violet)
                 : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
             }`}>
             <div className="flex items-center justify-between mb-1">
@@ -160,7 +177,17 @@ export const PartnerLeads: React.FC = () => {
                   <div>
                     <p className="text-sm font-bold text-white">{lead.name}</p>
                     <p className="text-xs text-white/40">{lead.email}</p>
-                    <p className="text-xs text-white/40 sm:hidden mt-1">{lead.destination}</p>
+                    <div className="sm:hidden mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/60">
+                      <span>{lead.destination || '—'}</span>
+                      <span>·</span>
+                      <span>{formatDateSafe(lead.start_date, 'Flexible')}</span>
+                      {lead.potential_value ? (
+                        <>
+                          <span>·</span>
+                          <span className="font-bold text-emerald-300">₹{Number(lead.potential_value).toLocaleString('en-IN')}</span>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="hidden sm:block">
                     <p className="text-sm text-white/80 font-semibold">{lead.destination || '—'}</p>
@@ -196,9 +223,9 @@ export const PartnerLeads: React.FC = () => {
 
       {/* Sliding Drawer */}
       {selectedLead && (
-        <div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div role="dialog" aria-modal="true" aria-label={`Lead details for ${selectedLead.name}`} className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedLead(null)}>
           <div className="absolute inset-y-0 right-0 max-w-full flex pl-10">
-            <div className="w-screen max-w-lg transform bg-slate-950 border-l border-white/10 shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-300">
+            <div className="w-screen max-w-lg transform bg-slate-950 border-l border-white/10 shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-300" onClick={e => e.stopPropagation()}>
               
               {/* Drawer Header */}
               <div className="p-6 border-b border-white/10 flex items-center justify-between">
@@ -207,6 +234,8 @@ export const PartnerLeads: React.FC = () => {
                   <p className="text-xs text-white/50">{selectedLead.destination} • Referral ID: {selectedLead.id}</p>
                 </div>
                 <button
+                  type="button"
+                  aria-label="Close lead details"
                   onClick={() => setSelectedLead(null)}
                   className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white flex items-center justify-center"
                 >
@@ -215,7 +244,7 @@ export const PartnerLeads: React.FC = () => {
               </div>
 
               {/* Drawer Content */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-6">
                 
                 {/* Details Card */}
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">

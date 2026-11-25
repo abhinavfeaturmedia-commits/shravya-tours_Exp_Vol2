@@ -2,6 +2,8 @@ import React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 
 // Validation schema
 const trainBookingSchema = z.object({
@@ -80,10 +82,10 @@ export const TrainBookingForm: React.FC<TrainBookingFormProps> = ({ onSubmit }) 
                 {/* Date */}
                 <div className="sm:col-span-1 lg:col-span-2">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Date</label>
-                    <input
+                    <BrandDatePicker
                         {...register('date')}
-                        className={`w-full px-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.date ? 'border-red-400' : 'border-transparent'}`}
-                        type="date"
+                        labelText="Travel Date"
+                        className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.date ? 'border-red-400' : 'border-transparent'}`}
                         min={today}
                     />
                     {errors.date && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.date.message}</p>}
@@ -123,19 +125,17 @@ export const TrainBookingForm: React.FC<TrainBookingFormProps> = ({ onSubmit }) 
                 {/* Class Type */}
                 <div className="sm:col-span-1 lg:col-span-2 relative group">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Class</label>
-                    <div className="relative">
-                        <select
-                            {...register('classType')}
-                            className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all appearance-none cursor-pointer ${errors.classType ? 'border-red-400' : 'border-transparent'}`}
-                        >
-                            <option value="Sleeper">Sleeper</option>
-                            <option value="AC 3 Tier">AC 3 Tier</option>
-                            <option value="AC 2 Tier">AC 2 Tier</option>
-                            <option value="AC First Class">AC 1st Class</option>
-                            <option value="Chair Car">Chair Car</option>
-                        </select>
-                        <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-                    </div>
+                    <BrandSelect
+                        {...register('classType')}
+                        labelText="Train Class"
+                        className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.classType ? 'border-red-400' : 'border-transparent'}`}
+                    >
+                        <option value="Sleeper">Sleeper</option>
+                        <option value="AC 3 Tier">AC 3 Tier</option>
+                        <option value="AC 2 Tier">AC 2 Tier</option>
+                        <option value="AC First Class">AC 1st Class</option>
+                        <option value="Chair Car">Chair Car</option>
+                    </BrandSelect>
                     {errors.classType && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.classType.message}</p>}
                 </div>
 

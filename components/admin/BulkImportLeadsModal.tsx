@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { toast } from 'sonner';
 import { useData } from '../../context/DataContext';
 import { Lead } from '../../types';
+import { BrandSelect } from '../ui/BrandSelect';
 
 interface BulkImportLeadsModalProps {
     isOpen: boolean;
@@ -105,10 +106,10 @@ export const BulkImportLeadsModal: React.FC<BulkImportLeadsModalProps> = ({ isOp
 
                             <div className="flex items-center gap-4 mb-2">
                                 <label className="text-sm font-bold text-slate-500">Separator:</label>
-                                <select value={separator} onChange={e => setSeparator(e.target.value)} className="bg-slate-100 dark:bg-slate-800 border-none rounded-lg px-3 py-1 text-sm font-bold shadow-sm">
+                                <BrandSelect value={separator} labelText="Separator" onChange={e => setSeparator(e.target.value)} className="bg-slate-100 dark:bg-slate-800 border-none rounded-lg px-3 py-1.5 text-sm font-bold shadow-sm min-w-[170px] text-slate-900 dark:text-white">
                                     <option value="Tab">Tab (Excel/Sheets)</option>
                                     <option value="Comma">Comma (CSV)</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <textarea

@@ -5,6 +5,7 @@ import { SupplierBookingModal } from './SupplierBookingModal';
 import { SupplierPaymentModal } from './SupplierPaymentModal';
 import { useAuth } from '../../context/AuthContext';
 import { toast } from 'sonner';
+import { confirmAction } from '../ui/ConfirmDialog';
 
 interface SupplierManagementModalProps {
     isOpen: boolean;
@@ -39,8 +40,14 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
         setIsFormOpen(true);
     };
 
-    const handleDelete = (sbId: string) => {
-        if (window.confirm('Are you sure you want to delete this supplier booking?')) {
+    const handleDelete = async (sbId: string) => {
+        const ok = await confirmAction({
+            title: 'Delete Supplier Booking',
+            message: 'Are you sure you want to delete this supplier booking?',
+            confirmLabel: 'Delete',
+            tone: 'danger',
+        });
+        if (ok) {
             deleteSupplierBooking(booking.id, sbId);
             if (expandedSbId === sbId) setExpandedSbId(null);
         }
@@ -78,7 +85,13 @@ export const SupplierManagementModal: React.FC<SupplierManagementModalProps> = (
     };
 
     const handleDeletePayment = async (sb: SupplierBooking, payment: SupplierPayment) => {
-        if (window.confirm(`Are you sure you want to delete this payment of ₹${payment.amount.toLocaleString()}? The remaining balance will automatically increase.`)) {
+        const ok = await confirmAction({
+            title: 'Delete Supplier Payment',
+            message: `Are you sure you want to delete this payment of ₹${payment.amount.toLocaleString()}? The remaining balance will automatically increase.`,
+            confirmLabel: 'Delete',
+            tone: 'danger',
+        });
+        if (ok) {
             try {
                 await deleteSupplierPayment(booking.id, sb.id, payment.id);
             } catch (err: any) {

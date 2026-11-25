@@ -13,6 +13,9 @@ import { Booking, SupplierBooking, BookingDailyDeliverable } from '../../types';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 import { TourChecklistModal } from '../../components/admin/TourChecklistModal';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 import {
     getBookingReadiness, getBalanceFlag, getAttentionFlags,
     READINESS_STYLES, BALANCE_FLAG_STYLES, type ReadinessLevel
@@ -196,9 +199,12 @@ export const Operations: React.FC = () => {
     const handleGenerateChecklist = async (booking: Booking, duration: number) => {
         const existing = deliverables[booking.id] || [];
         if (existing.length > 0) {
-            const ok = window.confirm(
-                `This tour already has ${existing.length} checklist items.\nRegenerate and add new ones?`
-            );
+            const ok = await confirmAction({
+                title: 'Regenerate Checklist',
+                message: `This tour already has ${existing.length} checklist items.\nRegenerate and add new ones?`,
+                confirmLabel: 'Regenerate',
+                tone: 'warning',
+            });
             if (!ok) return;
         }
 
@@ -892,12 +898,12 @@ export const Operations: React.FC = () => {
             {/* ── Header ── */}
             <div className="bg-white/90 dark:bg-[#1A2633]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-20 shadow-xs">
                 <div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
+                    <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
                         <div className="p-2 bg-blue-600/10 text-blue-600 dark:text-blue-400 rounded-xl">
                             <Briefcase size={22} />
                         </div>
                         <span className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight">Operations Control Center</span>
-                    </h2>
+                    </h1>
                     <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium mt-0.5">
                         Real-time tracking for active tours, transport assignments &amp; deliverable checklists.
                     </p>
@@ -1421,7 +1427,7 @@ export const Operations: React.FC = () => {
                                                                                                     </label>
 
                                                                                                     <div className="flex items-center gap-1">
-                                                                                                        <select
+                                                                                                        <BrandSelect
                                                                                                             value={item.status}
                                                                                                             onChange={(e) => {
                                                                                                                 const newStatus = e.target.value;
@@ -1445,7 +1451,7 @@ export const Operations: React.FC = () => {
                                                                                                             <option value="Verified Success">Success</option>
                                                                                                             <option value="Delayed">Delayed</option>
                                                                                                             <option value="Substituted">Substituted</option>
-                                                                                                        </select>
+                                                                                                        </BrandSelect>
 
                                                                                                         <button
                                                                                                             onClick={() => handleDeleteDeliverable(item.id, tour.id)}
@@ -1471,7 +1477,7 @@ export const Operations: React.FC = () => {
                                                                                     placeholder="Add item..."
                                                                                     className="flex-1 min-w-0 px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] placeholder-slate-400 outline-none text-slate-800 dark:text-slate-200"
                                                                                 />
-                                                                                <select
+                                                                                <BrandSelect
                                                                                     value={newDeliverableType[tour.id] || 'other'}
                                                                                     onChange={(e) => setNewDeliverableType(prev => ({ ...prev, [tour.id]: e.target.value as any }))}
                                                                                     className="px-1 py-1 bg-white dark:bg-slate-800 text-[10px] rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 outline-none"
@@ -1482,7 +1488,7 @@ export const Operations: React.FC = () => {
                                                                                     <option value="guide">🗣️</option>
                                                                                     <option value="activity">🎟️</option>
                                                                                     <option value="hotel">🏨</option>
-                                                                                </select>
+                                                                                </BrandSelect>
                                                                                 <button
                                                                                     onClick={() => handleAddCustomDeliverable(tour.id, currentChecklistDay)}
                                                                                     className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-xs"
@@ -1523,7 +1529,7 @@ export const Operations: React.FC = () => {
                                                 </div>
 
                                                 <div className="flex gap-2">
-                                                    <select
+                                                    <BrandSelect
                                                         value={tour.liveStatus || 'Auto'}
                                                         onChange={(e) => handleLiveStatusChange(tour.id, e.target.value)}
                                                         className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl border-none outline-none cursor-pointer"
@@ -1531,7 +1537,7 @@ export const Operations: React.FC = () => {
                                                         <option value="Auto">⚡ Auto (Date)</option>
                                                         <option value="Live">🟢 Force Live</option>
                                                         <option value="Issue">🔴 Flag Issue</option>
-                                                    </select>
+                                                    </BrandSelect>
 
                                                     <button
                                                         onClick={() => setSelectedBookingForChecklistId(tour.id)}
@@ -1735,7 +1741,7 @@ export const Operations: React.FC = () => {
                                     <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">
                                         Select Program Date
                                     </label>
-                                    <input
+                                    <BrandDatePicker
                                         type="date"
                                         value={programDate}
                                         onChange={(e) => setProgramDate(e.target.value)}
@@ -2134,7 +2140,7 @@ export const Operations: React.FC = () => {
                                 </h4>
                                 <div>
                                     <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Transport Agency / Vendor</label>
-                                    <select
+                                    <BrandSelect
                                         value={driverVendorId}
                                         onChange={(e) => setDriverVendorId(e.target.value)}
                                         className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold text-slate-800 dark:text-slate-200"
@@ -2143,7 +2149,7 @@ export const Operations: React.FC = () => {
                                         {transportVendors.map((v: any) => (
                                             <option key={v.id} value={v.id}>{v.name} ({v.location})</option>
                                         ))}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-2.5">
@@ -2184,7 +2190,7 @@ export const Operations: React.FC = () => {
                                 </h4>
                                 <div>
                                     <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Select Guide / Agency</label>
-                                    <select
+                                    <BrandSelect
                                         value={guideVendorId}
                                         onChange={(e) => setGuideVendorId(e.target.value)}
                                         className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold text-slate-800 dark:text-slate-200"
@@ -2193,7 +2199,7 @@ export const Operations: React.FC = () => {
                                         {guideVendors.map((v: any) => (
                                             <option key={v.id} value={v.id}>{v.name} ({v.category})</option>
                                         ))}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-2.5">

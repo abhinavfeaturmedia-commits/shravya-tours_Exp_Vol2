@@ -7,6 +7,8 @@ import { BotAvatar } from 'bot-avatars';
 import { BorderBeam } from 'border-beam';
 import { StaffBotAvatar } from '../../src/components/ui/StaffBotAvatar';
 import { StaffAttendanceCalendar } from '../../components/attendance/StaffAttendanceCalendar';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 export const Attendance: React.FC = () => {
     const { currentUser, isAuthenticated, hasPermission, canAccess } = useAuth();
@@ -972,7 +974,7 @@ export const Attendance: React.FC = () => {
                                 />
                             </div>
 
-                            <select
+                            <BrandSelect
                                 value={departmentFilter}
                                 onChange={e => setDepartmentFilter(e.target.value)}
                                 className="px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-2xl text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
@@ -980,9 +982,9 @@ export const Attendance: React.FC = () => {
                                 {departments.map(d => (
                                     <option key={d} value={d}>{d === 'All' ? 'All Departments' : d}</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
 
-                            <select
+                            <BrandSelect
                                 value={statusFilter}
                                 onChange={e => setStatusFilter(e.target.value)}
                                 className="px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-2xl text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
@@ -993,7 +995,7 @@ export const Attendance: React.FC = () => {
                                 <option value="On Break">On Break</option>
                                 <option value="Absent">Absent</option>
                                 <option value="On Leave">On Leave</option>
-                            </select>
+                            </BrandSelect>
                         </div>
 
                         <div className="flex items-center gap-2.5 w-full lg:w-auto justify-end">
@@ -1406,20 +1408,20 @@ export const Attendance: React.FC = () => {
                             </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
-                            <input
+                            <BrandDatePicker
                                 type="date"
                                 value={reportDateRange.startDate}
                                 onChange={e => setReportDateRange(prev => ({ ...prev, startDate: e.target.value }))}
                                 className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold"
                             />
                             <span className="text-slate-400 font-bold">to</span>
-                            <input
+                            <BrandDatePicker
                                 type="date"
                                 value={reportDateRange.endDate}
                                 onChange={e => setReportDateRange(prev => ({ ...prev, endDate: e.target.value }))}
                                 className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold"
                             />
-                            <select
+                            <BrandSelect
                                 value={reportDept}
                                 onChange={e => setReportDept(e.target.value)}
                                 className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold"
@@ -1427,7 +1429,7 @@ export const Attendance: React.FC = () => {
                                 {departments.map(d => (
                                     <option key={d} value={d}>{d === 'All' ? 'All Departments' : d}</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
                             <button
                                 onClick={handleExportReportCSV}
                                 className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-2xl shadow-sm transition-all cursor-pointer"
@@ -1671,7 +1673,7 @@ export const Attendance: React.FC = () => {
                                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                                         Inactivity Idle Threshold (Seconds)
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         value={settingsForm.idle_threshold_seconds || 180}
                                         onChange={e => setSettingsForm(prev => ({ ...prev, idle_threshold_seconds: Number(e.target.value) }))}
                                         className="w-full px-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 cursor-pointer"
@@ -1681,7 +1683,7 @@ export const Attendance: React.FC = () => {
                                         <option value="180">3 Minutes (180s - Recommended)</option>
                                         <option value="300">5 Minutes (300s)</option>
                                         <option value="600">10 Minutes (600s)</option>
-                                    </select>
+                                    </BrandSelect>
                                     <p className="text-[11px] text-slate-400 mt-1">Transitions session from Active to Idle when no mouse/keyboard activity detected.</p>
                                 </div>
                             </div>
@@ -1693,7 +1695,7 @@ export const Attendance: React.FC = () => {
                                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                                     Default Shift Start Time
                                 </label>
-                                <input
+                                <BrandDatePicker
                                     type="time"
                                     value={settingsForm.shift_start || '09:30'}
                                     onChange={e => setSettingsForm(prev => ({ ...prev, shift_start: e.target.value }))}
@@ -1705,7 +1707,7 @@ export const Attendance: React.FC = () => {
                                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1.5">
                                     Default Shift End Time
                                 </label>
-                                <input
+                                <BrandDatePicker
                                     type="time"
                                     value={settingsForm.shift_end || '18:30'}
                                     onChange={e => setSettingsForm(prev => ({ ...prev, shift_end: e.target.value }))}
@@ -1950,7 +1952,7 @@ export const Attendance: React.FC = () => {
                         <div className="space-y-3 text-xs">
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Status</label>
-                                <select
+                                <BrandSelect
                                     value={editForm.status}
                                     onChange={e => setEditForm(prev => ({ ...prev, status: e.target.value }))}
                                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
@@ -1961,12 +1963,12 @@ export const Attendance: React.FC = () => {
                                     <option value="Absent">Absent</option>
                                     <option value="On Leave">On Leave</option>
                                     <option value="Half Day">Half Day</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Clock In Time</label>
-                                <input
+                                <BrandDatePicker
                                     type="datetime-local"
                                     value={editForm.checkInTime}
                                     onChange={e => setEditForm(prev => ({ ...prev, checkInTime: e.target.value }))}
@@ -1976,7 +1978,7 @@ export const Attendance: React.FC = () => {
 
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Clock Out Time</label>
-                                <input
+                                <BrandDatePicker
                                     type="datetime-local"
                                     value={editForm.checkOutTime}
                                     onChange={e => setEditForm(prev => ({ ...prev, checkOutTime: e.target.value }))}
@@ -2030,7 +2032,7 @@ export const Attendance: React.FC = () => {
                             {(currentUser?.userType === 'Admin' || canAccess('attendance', 'approve_leaves') || hasPermission('attendance', 'manage') || hasPermission('settings', 'manage')) && todayData?.roster && (
                                 <div>
                                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Staff Member</label>
-                                    <select
+                                    <BrandSelect
                                         value={leaveForm.staffId || ''}
                                         onChange={e => setLeaveForm(prev => ({ ...prev, staffId: e.target.value ? Number(e.target.value) : undefined }))}
                                         className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-800 dark:text-slate-200"
@@ -2041,13 +2043,13 @@ export const Attendance: React.FC = () => {
                                                 {r.name} ({r.department || 'Operations'} - #{r.staffId})
                                             </option>
                                         ))}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             )}
 
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Leave Type</label>
-                                <select
+                                <BrandSelect
                                     value={leaveForm.leaveType}
                                     onChange={e => setLeaveForm(prev => ({ ...prev, leaveType: e.target.value as any }))}
                                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
@@ -2057,13 +2059,13 @@ export const Attendance: React.FC = () => {
                                     <option value="Paid">Paid Vacation</option>
                                     <option value="Half Day">Half Day Leave</option>
                                     <option value="Unpaid">Unpaid Leave</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
                                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Start Date</label>
-                                    <input
+                                    <BrandDatePicker
                                         type="date"
                                         required
                                         value={leaveForm.startDate}
@@ -2073,7 +2075,7 @@ export const Attendance: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">End Date</label>
-                                    <input
+                                    <BrandDatePicker
                                         type="date"
                                         required
                                         value={leaveForm.endDate}
@@ -2137,7 +2139,7 @@ export const Attendance: React.FC = () => {
                             )}
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Date to Correct</label>
-                                <input
+                                <BrandDatePicker
                                     type="date"
                                     required
                                     value={regForm.date}
@@ -2149,7 +2151,7 @@ export const Attendance: React.FC = () => {
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
                                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Actual Clock In</label>
-                                    <input
+                                    <BrandDatePicker
                                         type="time"
                                         required
                                         value={regForm.checkIn}
@@ -2159,7 +2161,7 @@ export const Attendance: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Actual Clock Out</label>
-                                    <input
+                                    <BrandDatePicker
                                         type="time"
                                         required
                                         value={regForm.checkOut}

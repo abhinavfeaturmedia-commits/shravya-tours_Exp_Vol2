@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { VideoPlayerModal, TrainingVideo } from '../../components/training/VideoPlayerModal';
 import { extractYouTubeId } from '../../utils/youtube';
 import { toast } from 'sonner';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 const CATEGORIES = [
   'All',
@@ -119,7 +121,13 @@ export const TrainingManager: React.FC = () => {
   };
 
   const handleDeleteVideo = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete this training video?')) return;
+    const ok = await confirmAction({
+      title: 'Delete Training Video',
+      message: 'Are you sure you want to delete this training video?',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
 
     try {
       const res = await fetch(`/api/training-videos/${id}`, { method: 'DELETE' });
@@ -214,7 +222,8 @@ export const TrainingManager: React.FC = () => {
           </div>
 
           {/* Category Filter Dropdown */}
-          <select
+          <BrandSelect
+            tone="dark"
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500"
@@ -224,7 +233,7 @@ export const TrainingManager: React.FC = () => {
                 Category: {cat}
               </option>
             ))}
-          </select>
+          </BrandSelect>
         </div>
       </div>
 
@@ -449,7 +458,8 @@ export const TrainingManager: React.FC = () => {
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     Target Audience *
                   </label>
-                  <select
+                  <BrandSelect
+                    tone="dark"
                     value={editingVideo.target_audience || 'all'}
                     onChange={(e) =>
                       setEditingVideo({
@@ -462,14 +472,15 @@ export const TrainingManager: React.FC = () => {
                     <option value="staff">🧑‍💼 Staff Only</option>
                     <option value="partner">🤝 Travel Associate (Partner) Only</option>
                     <option value="all">🌐 All Roles (Staff & Associates)</option>
-                  </select>
+                  </BrandSelect>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     Category / Module
                   </label>
-                  <select
+                  <BrandSelect
+                    tone="dark"
                     value={editingVideo.category || 'Onboarding'}
                     onChange={(e) => setEditingVideo({ ...editingVideo, category: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-indigo-500"
@@ -479,7 +490,7 @@ export const TrainingManager: React.FC = () => {
                         {cat}
                       </option>
                     ))}
-                  </select>
+                  </BrandSelect>
                 </div>
               </div>
 

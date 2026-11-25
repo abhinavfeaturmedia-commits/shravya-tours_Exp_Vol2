@@ -10,6 +10,7 @@ import {
   parseGradeLevel
 } from './shrawelloOrgBlueprint';
 import { RoleAssignmentModal } from './RoleAssignmentModal';
+import BrandSelect from '../../ui/BrandSelect';
 import {
   Users,
   Settings,
@@ -266,10 +267,10 @@ export const ShrawelloOrgChart: React.FC<ShrawelloOrgChartProps> = ({
           
           {/* Department Filter */}
           <div className="relative">
-            <select
+            <BrandSelect
               value={selectedDeptFilter}
               onChange={e => setSelectedDeptFilter(e.target.value)}
-              className="appearance-none bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pl-3 pr-8 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+              className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
             >
               <option value="all">All 7 Departments</option>
               {SHRAWELLO_DEPARTMENTS.map(d => (
@@ -277,8 +278,7 @@ export const ShrawelloOrgChart: React.FC<ShrawelloOrgChartProps> = ({
                   {d.name}
                 </option>
               ))}
-            </select>
-            <ChevronDown className="size-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </BrandSelect>
           </div>
 
           {/* Search Box */}

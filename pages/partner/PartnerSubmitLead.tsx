@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { usePartnerAuth } from '../../context/PartnerAuthContext';
 import { toast } from '../../components/ui/Toast';
+import { BrandSelect } from '../../components/ui/BrandSelect';
+import { BrandDatePicker } from '../../components/ui/BrandDatePicker';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -200,11 +202,11 @@ export const PartnerSubmitLead: React.FC = () => {
             </div>
             <div>
               <label className="block text-xs font-bold text-white/60 mb-1.5 uppercase tracking-wide">Start Date</label>
-              <input name="startDate" type="date" value={form.startDate} onChange={handleChange} className={inputClass} />
+              <BrandDatePicker tone="dark" labelText="Start Date" name="startDate" value={form.startDate} onChange={handleChange} className={inputClass} />
             </div>
             <div>
               <label className="block text-xs font-bold text-white/60 mb-1.5 uppercase tracking-wide">End Date</label>
-              <input name="endDate" type="date" value={form.endDate} onChange={handleChange} className={inputClass} />
+              <BrandDatePicker tone="dark" labelText="End Date" name="endDate" min={form.startDate || undefined} value={form.endDate} onChange={handleChange} className={inputClass} />
             </div>
             <div>
               <label className="block text-xs font-bold text-white/60 mb-1.5 uppercase tracking-wide">Travelers</label>
@@ -212,9 +214,9 @@ export const PartnerSubmitLead: React.FC = () => {
             </div>
             <div>
               <label className="block text-xs font-bold text-white/60 mb-1.5 uppercase tracking-wide">Trip Type</label>
-              <select name="type" value={form.type} onChange={handleChange} className={selectClass}>
+              <BrandSelect tone="dark" labelText="Trip Type" name="type" value={form.type} onChange={handleChange} className={selectClass}>
                 <option>Tour</option><option>Hotel</option><option>Car</option><option>Bus</option><option>Train</option><option>Flight</option>
-              </select>
+              </BrandSelect>
             </div>
             <div>
               <label className="block text-xs font-bold text-white/60 mb-1.5 uppercase tracking-wide">Budget (₹)</label>

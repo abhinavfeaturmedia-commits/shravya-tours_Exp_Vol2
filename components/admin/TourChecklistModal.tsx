@@ -5,6 +5,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { useBookings } from '../../src/hooks/useBookings';
 import { toast } from 'sonner';
+import { confirmAction } from '../ui/ConfirmDialog';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 import {
     CheckCircle2, Clock, AlertCircle, Plus, Trash2,
     MessageCircle, Calendar, CheckSquare, Sparkles, RefreshCw, X, CalendarClock,
@@ -271,9 +274,15 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
         toast.success(`Applied 10-Point Checklist: ${targetTemplate.name}`);
     };
 
-    const handleResetToActiveTemplate = () => {
+    const handleResetToActiveTemplate = async () => {
         const activeTpl = CHECKLIST_TEMPLATES[selectedTemplateId] || CHECKLIST_TEMPLATES.domestic_tour;
-        if (!window.confirm(`Reset checklist back to the 10 standard items for "${activeTpl.name}"? Any custom items will be replaced.`)) return;
+        const ok = await confirmAction({
+            title: 'Reset Checklist',
+            message: `Reset checklist back to the 10 standard items for "${activeTpl.name}"? Any custom items will be replaced.`,
+            confirmLabel: 'Reset Checklist',
+            tone: 'warning',
+        });
+        if (!ok) return;
         const resetItems = buildItemsFromTemplate(selectedTemplateId);
         setItems(resetItems);
         toast.info(`Checklist reset to standard 10 items for ${activeTpl.name}`);
@@ -740,10 +749,10 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                                             {/* Due Date */}
                                             {!isNA && (
                                                 <div className="flex flex-col items-start min-w-[8.5rem]">
-                                                    <input
-                                                        type="date"
+                                                    <BrandDatePicker
                                                         value={item.dueDate ? item.dueDate.split('T')[0] : ''}
                                                         onChange={(e) => handleUpdateDueDate(item.id, e.target.value)}
+                                                        labelText={`Due date for ${item.title}`}
                                                         title="Due date for this task"
                                                         className={`text-xs rounded-lg px-2 py-1.5 border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
                                                             dueState === 'overdue'
@@ -768,8 +777,9 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
 
                                             {/* Staff Assignee Dropdown */}
                                             <div className="relative flex items-center">
-                                                <select
+                                                <BrandSelect
                                                     value={item.assignedStaffId || ''}
+                                                    labelText="Assigned Staff"
                                                     onChange={(e) => handleUpdateStaff(item.id, Number(e.target.value))}
                                                     className="text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-amber-500 w-36 truncate"
                                                 >
@@ -779,12 +789,13 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                                                             {member.name}
                                                         </option>
                                                     ))}
-                                                </select>
+                                                </BrandSelect>
                                             </div>
 
                                             {/* Status Selector */}
-                                            <select
+                                            <BrandSelect
                                                 value={item.status}
+                                                labelText="Checklist Item Status"
                                                 onChange={(e) => handleUpdateStatus(item.id, e.target.value as TourChecklistStatus)}
                                                 className={`text-xs font-bold rounded-lg px-2.5 py-1.5 w-32 border transition-all focus:outline-none ${
                                                     item.status === 'Completed'
@@ -800,7 +811,7 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                                                 <option value="In Progress">In Progress</option>
                                                 <option value="Completed">Completed</option>
                                                 <option value="Not Applicable">Not Applicable</option>
-                                            </select>
+                                            </BrandSelect>
 
                                             {/* WhatsApp Prompt Button */}
                                             <button
@@ -854,10 +865,11 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                                     />
                                 </div>
                                 <div>
-                                    <select
+                                    <BrandSelect
                                         value={customCategory}
+                                        labelText="Custom Task Category"
                                         onChange={(e) => setCustomCategory(e.target.value as TourChecklistCategory)}
-                                        className="w-full text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                        className="w-full text-xs px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium text-slate-900 dark:text-white"
                                     >
                                         <option value="Visa">Visa</option>
                                         <option value="Tickets">Tickets</option>
@@ -867,7 +879,7 @@ export const TourChecklistModal: React.FC<TourChecklistModalProps> = ({ isOpen, 
                                         <option value="Vouchers">Vouchers</option>
                                         <option value="Briefing">Briefing</option>
                                         <option value="Other">Other</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
                             <div>

@@ -7,6 +7,8 @@ import {
 import { toast } from 'sonner';
 import { getIndianFinancialYear } from '../../utils/gstUtils';
 import { downloadInvoicesAsZip, InvoiceCopyType, BatchProgress } from '../../utils/batchInvoiceDownloader';
+import BrandSelect from '../ui/BrandSelect';
+import BrandDatePicker from '../ui/BrandDatePicker';
 
 interface BatchInvoicesDownloadModalProps {
     isOpen: boolean;
@@ -471,7 +473,7 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Financial Year:</span>
-                                <select
+                                <BrandSelect
                                     value={selectedFy}
                                     onChange={e => setSelectedFy(e.target.value)}
                                     className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-900 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-amber-500"
@@ -479,7 +481,7 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
                                     <option value="26-27">FY 2026-27</option>
                                     <option value="25-26">FY 2025-26</option>
                                     <option value="24-25">FY 2024-25</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -575,7 +577,7 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
                                 <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
                                     Start Date (From)
                                 </label>
-                                <input
+                                <BrandDatePicker
                                     type="date"
                                     value={startDate}
                                     onChange={e => setStartDate(e.target.value)}
@@ -586,7 +588,7 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
                                 <label className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1.5">
                                     End Date (To)
                                 </label>
-                                <input
+                                <BrandDatePicker
                                     type="date"
                                     value={endDate}
                                     onChange={e => setEndDate(e.target.value)}
@@ -632,7 +634,7 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label className="text-[11px] font-bold text-slate-400 block mb-1">Document Type</label>
-                                <select
+                                <BrandSelect
                                     value={docTypeFilter}
                                     onChange={e => setDocTypeFilter(e.target.value)}
                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-white cursor-pointer outline-none"
@@ -642,11 +644,11 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
                                     <option value="Quotation">Quotations Only</option>
                                     <option value="Proforma">Proformas Only</option>
                                     <option value="CreditNote">Credit Notes Only</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                             <div>
                                 <label className="text-[11px] font-bold text-slate-400 block mb-1">Status Filter</label>
-                                <select
+                                <BrandSelect
                                     value={statusFilter}
                                     onChange={e => setStatusFilter(e.target.value)}
                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-white cursor-pointer outline-none"
@@ -655,7 +657,7 @@ export const BatchInvoicesDownloadModal: React.FC<BatchInvoicesDownloadModalProp
                                     <option value="Paid">Paid Invoices Only</option>
                                     <option value="Sent">Sent / Pending Only</option>
                                     <option value="All">All Statuses (Including Void)</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                         </div>
                     </div>

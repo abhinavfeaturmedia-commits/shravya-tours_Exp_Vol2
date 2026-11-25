@@ -17,6 +17,8 @@ import {
     GstInvoiceRecord
 } from '../../src/lib/gstExportEngine';
 import { getIndianFinancialYear } from '../../utils/gstUtils';
+import BrandSelect from '../ui/BrandSelect';
+import BrandDatePicker from '../ui/BrandDatePicker';
 
 interface GstExportModalProps {
     isOpen: boolean;
@@ -419,7 +421,7 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label className="text-[11px] font-bold text-slate-500 mb-1 block">Month</label>
-                                        <select
+                                        <BrandSelect
                                             value={selectedMonth}
                                             onChange={e => setSelectedMonth(Number(e.target.value))}
                                             className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-amber-500/40"
@@ -427,11 +429,11 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                             {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
                                                 <option key={m} value={idx}>{m}</option>
                                             ))}
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div>
                                         <label className="text-[11px] font-bold text-slate-500 mb-1 block">Year</label>
-                                        <select
+                                        <BrandSelect
                                             value={selectedMonthYear}
                                             onChange={e => setSelectedMonthYear(Number(e.target.value))}
                                             className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-amber-500/40"
@@ -439,7 +441,7 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                             {[2024, 2025, 2026, 2027, 2028].map(y => (
                                                 <option key={y} value={y}>{y}</option>
                                             ))}
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                 </div>
                             )}
@@ -449,7 +451,7 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Financial Year:</span>
-                                        <select
+                                        <BrandSelect
                                             value={selectedQuarterFy}
                                             onChange={e => setSelectedQuarterFy(e.target.value)}
                                             className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-white outline-none"
@@ -457,7 +459,7 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                             <option value="26-27">FY 2026-27</option>
                                             <option value="25-26">FY 2025-26</option>
                                             <option value="24-25">FY 2024-25</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                         {[
@@ -547,7 +549,7 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                         <label className="text-[11px] font-bold text-slate-500 mb-1 block">From Date</label>
-                                        <input
+                                        <BrandDatePicker
                                             type="date"
                                             value={customStartDate}
                                             onChange={e => setCustomStartDate(e.target.value)}
@@ -556,7 +558,7 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                     </div>
                                     <div>
                                         <label className="text-[11px] font-bold text-slate-500 mb-1 block">To Date</label>
-                                        <input
+                                        <BrandDatePicker
                                             type="date"
                                             value={customEndDate}
                                             onChange={e => setCustomEndDate(e.target.value)}
@@ -629,7 +631,7 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-200/70 dark:border-slate-800 text-xs">
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Document Series</label>
-                                <select
+                                <BrandSelect
                                     value={docTypeFilter}
                                     onChange={e => setDocTypeFilter(e.target.value)}
                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none"
@@ -639,12 +641,12 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                     <option value="Quotation">Quotations Only</option>
                                     <option value="Proforma">Proforma Invoices Only</option>
                                     <option value="CreditNote">Credit Notes Only</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Invoice Status</label>
-                                <select
+                                <BrandSelect
                                     value={statusFilter}
                                     onChange={e => setStatusFilter(e.target.value)}
                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none"
@@ -652,12 +654,12 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                     <option value="Active">Active & Settled (Exclude Void)</option>
                                     <option value="Paid">Paid Invoices Only</option>
                                     <option value="All">All Statuses (Include Void)</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">GST & Supply Type</label>
-                                <select
+                                <BrandSelect
                                     value={gstTypeFilter}
                                     onChange={e => setGstTypeFilter(e.target.value)}
                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 outline-none"
@@ -667,7 +669,7 @@ export const GstExportModal: React.FC<GstExportModalProps> = ({ isOpen, onClose 
                                     <option value="IGST">Inter-State (IGST)</option>
                                     <option value="B2B">B2B Only (With Client GSTIN)</option>
                                     <option value="B2C">B2C Only (Retail / Walk-in)</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                         </div>
                     </div>

@@ -60,7 +60,7 @@ export const PartnerMilestones: React.FC = () => {
     <div className="space-y-8 max-w-4xl mx-auto">
       {/* Hero Tier Card */}
       <div className={`bg-gradient-to-br ${TIER_COLORS[currentTier]} border rounded-3xl p-8 relative overflow-hidden`}>
-        <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white/3 -translate-y-10 translate-x-10 pointer-events-none" />
+        <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white/[0.03] -translate-y-10 translate-x-10 pointer-events-none" />
         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
           <div>
             <p className="text-white/50 text-sm font-semibold uppercase tracking-widest mb-2">Your Loyalty Tier</p>
@@ -104,7 +104,7 @@ export const PartnerMilestones: React.FC = () => {
             const isActive = tier === currentTier;
             const isAchieved = THRESHOLDS[tier] <= converted;
             return (
-              <div key={tier} className={`relative rounded-2xl p-5 border transition-all ${isActive ? `bg-gradient-to-br ${TIER_COLORS[tier]} border-opacity-60 shadow-lg scale-[1.02]` : isAchieved ? 'bg-white/5 border-white/15 opacity-80' : 'bg-white/3 border-white/8 opacity-40'}`}>
+              <div key={tier} className={`relative rounded-2xl p-5 border transition-all ${isActive ? `bg-gradient-to-br ${TIER_COLORS[tier]} border-opacity-60 shadow-lg scale-[1.02]` : isAchieved ? 'bg-white/5 border-white/15 opacity-80' : 'bg-white/[0.03] border-white/[0.08] opacity-40'}`}>
                 {isActive && (
                   <div className="absolute -top-2 -right-2 bg-violet-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">Current</div>
                 )}

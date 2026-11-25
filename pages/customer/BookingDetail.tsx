@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../../context/CustomerAuthContext';
 import { formatPrice } from '../../utils/packageUtils';
+import { toast } from 'sonner';
+import { BrandSelect } from '../../components/ui/BrandSelect';
+import { BrandDatePicker } from '../../components/ui/BrandDatePicker';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -262,6 +265,20 @@ export const BookingDetail: React.FC = () => {
     fetchMyMembership();
   }, [id]);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileSidebarOpen(false);
+        setShowPayModal(false);
+        setShowCancelModal(false);
+        setShowRescheduleModal(false);
+        setShowDriverTrackingModal(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // Polling for live driver location
   useEffect(() => {
     if (!driverAllocation || !driverAllocation.live_tracking_enabled) return;
@@ -343,7 +360,7 @@ export const BookingDetail: React.FC = () => {
       setPayFile(null);
       
       fetchAllData();
-      alert('Payment receipt logged successfully! Our staff will verify it shortly.');
+      toast.success('Payment receipt logged successfully! Our staff will verify it shortly.');
     } catch (err: any) {
       setPayError(err.message);
     } finally {
@@ -357,12 +374,12 @@ export const BookingDetail: React.FC = () => {
 
   const handlePayOnline = async () => {
     if (balanceDue < 1) {
-      alert('The balance due is ₹0 or too small to pay online.');
+      toast.info('The balance due is ₹0 or too small to pay online.');
       return;
     }
 
     if (!(window as any).Razorpay) {
-      alert('Razorpay payment gateway is loading. Please try again in a moment.');
+      toast.error('Razorpay payment gateway is loading. Please try again in a moment.');
       return;
     }
 
@@ -417,10 +434,10 @@ export const BookingDetail: React.FC = () => {
             const verifyData = await verifyRes.json();
             if (!verifyRes.ok) throw new Error(verifyData.error || 'Payment signature verification failed');
 
-            alert('Payment verified and recorded successfully!');
+            toast.success('Payment verified and recorded successfully!');
             fetchAllData();
           } catch (err: any) {
-            alert('Verification failed: ' + err.message);
+            toast.error('Verification failed: ' + err.message);
           } finally {
             setOnlinePayLoading(false);
           }
@@ -443,7 +460,7 @@ export const BookingDetail: React.FC = () => {
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
     } catch (err: any) {
-      alert('Error initiating checkout: ' + err.message);
+      toast.error('Error initiating checkout: ' + err.message);
       setOnlinePayLoading(false);
     }
   };
@@ -465,10 +482,10 @@ export const BookingDetail: React.FC = () => {
       });
       if (!res.ok) throw new Error('Failed to request cancellation');
       setShowCancelModal(false);
-      alert('Cancellation request submitted successfully.');
+      toast.success('Cancellation request submitted successfully.');
       fetchAllData();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setCancelLoading(false);
     }
@@ -490,10 +507,10 @@ export const BookingDetail: React.FC = () => {
       });
       if (!res.ok) throw new Error('Failed to request rescheduling');
       setShowRescheduleModal(false);
-      alert('Reschedule request submitted successfully.');
+      toast.success('Reschedule request submitted successfully.');
       fetchAllData();
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setRescheduleLoading(false);
     }
@@ -515,7 +532,7 @@ export const BookingDetail: React.FC = () => {
       if (!res.ok) throw new Error('Failed to submit review');
       setReviewSubmitted(true);
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setReviewLoading(false);
     }
@@ -611,7 +628,7 @@ export const BookingDetail: React.FC = () => {
       `}</style>
 
       {/* ── Left Sidebar (Desktop) ── */}
-      <aside className="hidden lg:flex flex-col w-[280px] shrink-0 border-r border-[#EDE8DF] bg-white sticky top-0 h-screen z-45 no-print">
+      <aside className="hidden lg:flex flex-col w-[280px] shrink-0 border-r border-[#EDE8DF] bg-white sticky top-0 h-screen z-40 no-print">
         <div className="px-6 h-20 border-b border-[#EDE8DF] flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <span className="font-display font-black text-2xl tracking-tight" style={{ color: '#2D6A4F' }}>
@@ -644,20 +661,23 @@ export const BookingDetail: React.FC = () => {
           </Link>
         </div>
 
-        <nav className="flex-grow px-4 py-6 space-y-1.5 overflow-y-auto">
+        <nav aria-label="Customer Portal Navigation" className="flex-grow px-4 py-6 space-y-1.5 overflow-y-auto">
           {([
-            { key: 'bookings', label: 'Bookings', icon: 'calendar_month', active: true },
-            { key: 'discovery', label: 'Discovery', icon: 'explore', active: false },
-            { key: 'rewards', label: 'Rewards & Pay', icon: 'military_tech', active: false },
-            { key: 'profile', label: 'Profile', icon: 'person', active: false },
-            { key: 'support', label: 'Support', icon: 'chat', active: false },
+            { key: 'bookings', label: 'My Trips', icon: 'flight_takeoff', active: true },
+            { key: 'documents', label: 'Document Vault', icon: 'folder_shared', active: false },
+            { key: 'wishlist', label: 'Wishlist', icon: 'favorite', active: false },
+            { key: 'travelers', label: 'Co-Travelers', icon: 'group', active: false },
+            { key: 'membership', label: 'VIP Perks', icon: 'workspace_premium', active: false },
+            { key: 'profile', label: 'Account Settings', icon: 'manage_accounts', active: false, modal: 'profile' as const },
+            { key: 'support', label: 'Concierge Support', icon: 'support_agent', active: false, modal: 'support' as const },
           ]).map(item => {
             return (
               <button
                 key={item.key}
-                onClick={() => navigate('/my-account', { state: { tab: item.key } })}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs relative ${
-                  item.active ? 'bg-[#F5EDE0] text-slate-900' : 'text-slate-500'
+                type="button"
+                onClick={() => navigate('/my-account', { state: item.modal ? { openModal: item.modal } : { tab: item.key } })}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-xs relative transition-colors ${
+                  item.active ? 'bg-[#F5EDE0] text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                 }`}
               >
                 {item.active && (
@@ -675,28 +695,34 @@ export const BookingDetail: React.FC = () => {
 
       {/* Mobile Drawer Sidebar */}
       {isMobileSidebarOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex no-print">
+        <div role="dialog" aria-modal="true" aria-label="Navigation Menu" className="fixed inset-0 z-50 lg:hidden flex no-print">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsMobileSidebarOpen(false)} />
           <div className="relative w-72 bg-white flex flex-col h-full shadow-2xl p-5 z-10">
-            <button className="absolute top-4 right-4 text-slate-400" onClick={() => setIsMobileSidebarOpen(false)}>
+            <button type="button" aria-label="Close navigation menu" className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg" onClick={() => setIsMobileSidebarOpen(false)}>
               <span className="material-symbols-outlined">close</span>
             </button>
             <div className="mb-6 pb-5 border-b border-[#EDE8DF]">
               <span className="font-display font-black text-xl text-primary" style={{ color: '#2D6A4F' }}>Shrawello Travel Hub</span>
             </div>
-            <nav className="space-y-1">
+            <nav aria-label="Mobile Customer Portal Navigation" className="space-y-1">
               {([
-                { key: 'bookings', label: 'Bookings', icon: 'calendar_month', active: true },
-                { key: 'discovery', label: 'Discovery', icon: 'explore', active: false },
-                { key: 'rewards', label: 'Rewards & Pay', icon: 'military_tech', active: false },
-                { key: 'profile', label: 'Profile', icon: 'person', active: false },
-                { key: 'support', label: 'Support', icon: 'chat', active: false },
+                { key: 'bookings', label: 'My Trips', icon: 'flight_takeoff', active: true },
+                { key: 'documents', label: 'Document Vault', icon: 'folder_shared', active: false },
+                { key: 'wishlist', label: 'Wishlist', icon: 'favorite', active: false },
+                { key: 'travelers', label: 'Co-Travelers', icon: 'group', active: false },
+                { key: 'membership', label: 'VIP Perks', icon: 'workspace_premium', active: false },
+                { key: 'profile', label: 'Account Settings', icon: 'manage_accounts', active: false, modal: 'profile' as const },
+                { key: 'support', label: 'Concierge Support', icon: 'support_agent', active: false, modal: 'support' as const },
               ]).map(item => (
                 <button
                   key={item.key}
-                  onClick={() => { navigate('/my-account', { state: { tab: item.key } }); setIsMobileSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl font-bold text-xs ${
-                    item.active ? 'bg-primary/10 text-primary' : 'text-slate-500'
+                  type="button"
+                  onClick={() => {
+                    navigate('/my-account', { state: item.modal ? { openModal: item.modal } : { tab: item.key } });
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl font-bold text-xs transition-colors ${
+                    item.active ? 'bg-primary/10 text-primary' : 'text-slate-500 hover:bg-slate-50'
                   }`}
                   style={{ color: item.active ? '#C9732A' : undefined, backgroundColor: item.active ? '#FFF8F2' : undefined }}
                 >
@@ -812,10 +838,12 @@ export const BookingDetail: React.FC = () => {
               {/* Cover Image & Overview */}
               <div className="bg-white rounded-[2.2rem] border border-[#EDE8DF] overflow-hidden shadow-sm">
                 <div className="h-64 bg-slate-100 relative">
-                  <img src={booking.image || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80'} alt="cover" className="w-full h-full object-cover" />
-                  <div className="absolute top-4 left-4 flex gap-2">
-                    <span className="bg-black/40 backdrop-blur-md border border-white/10 text-white text-[9px] font-black uppercase px-2.5 py-1 rounded">Mountains</span>
-                    <span className="bg-black/40 backdrop-blur-md border border-white/10 text-white text-[9px] font-black uppercase px-2.5 py-1 rounded">Leisure</span>
+                  <img src={booking.image || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80'} alt={booking.package_name || booking.destination || 'Trip cover'} className="w-full h-full object-cover" />
+                  <div className="absolute top-4 left-4 flex flex-wrap gap-2">
+                    {booking.destination && (
+                      <span className="bg-black/50 backdrop-blur-md border border-white/15 text-white text-[10px] font-black uppercase px-2.5 py-1 rounded-lg">{booking.destination}</span>
+                    )}
+                    <span className="bg-black/50 backdrop-blur-md border border-white/15 text-white text-[10px] font-black uppercase px-2.5 py-1 rounded-lg">{booking.status || 'Confirmed'}</span>
                   </div>
                 </div>
                 {booking.overview && (
@@ -1051,8 +1079,13 @@ export const BookingDetail: React.FC = () => {
 
                   {balanceDue > 0 && booking.status !== 'cancelled' && (
                     <button 
-                      onClick={() => setShowPayModal(true)} 
-                      className="w-full text-center text-[10px] font-bold text-slate-400 hover:text-slate-655 transition-colors pt-1"
+                      type="button"
+                      onClick={() => {
+                        setPayAmount(String(balanceDue));
+                        setPayError(null);
+                        setShowPayModal(true);
+                      }} 
+                      className="w-full text-center text-[11px] font-bold text-slate-500 hover:text-slate-700 transition-colors pt-1"
                     >
                       Or upload bank transfer (UTR) receipt
                     </button>
@@ -1097,30 +1130,30 @@ export const BookingDetail: React.FC = () => {
               <div className="bg-white rounded-3xl p-6 border border-[#EDE8DF] shadow-sm space-y-4">
                 <div className="flex justify-between items-center border-b border-slate-50 pb-3">
                   <h3 className="font-display font-bold text-base text-slate-900">Travelers</h3>
-                  <button onClick={() => navigate('/my-account')} className="text-xs font-bold text-primary hover:text-primary-dark" style={{ color: '#C9732A' }}>
-                    Edit Details
+                  <button type="button" onClick={() => navigate('/my-account', { state: { tab: 'travelers' } })} className="text-xs font-bold text-primary hover:text-primary-dark" style={{ color: '#C9732A' }}>
+                    Manage Travelers
                   </button>
                 </div>
 
                 <div className="space-y-3">
-                  <div className="p-3 bg-slate-50 rounded-2xl flex items-center justify-between">
-                    <div>
-                      <p className="font-bold text-slate-800 text-xs leading-none">{customer?.name}</p>
-                      <span className="text-[8px] text-slate-400 mt-1 block uppercase font-bold">Primary Traveler</span>
+                  <div className="p-3 bg-slate-50 rounded-2xl flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-800 text-xs leading-none truncate">{customer?.name || 'Primary Guest'}</p>
+                      <span className="text-[9px] text-slate-400 mt-1 block uppercase font-bold">Primary Traveler</span>
                     </div>
-                    <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full">
-                      Passport Uploaded
-                    </span>
+                    <button type="button" onClick={() => navigate('/my-account', { state: { tab: 'documents' } })} className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full hover:bg-emerald-100 transition-colors shrink-0">
+                      Open Vault
+                    </button>
                   </div>
 
                   {booking.pax_count && booking.pax_count > 1 && (
-                    <div className="p-3 bg-slate-50 rounded-2xl flex items-center justify-between">
+                    <div className="p-3 bg-slate-50 rounded-2xl flex items-center justify-between gap-2">
                       <div>
-                        <p className="font-bold text-slate-800 text-xs leading-none">Passenger 2</p>
-                        <span className="text-[8px] text-slate-400 mt-1 block uppercase font-bold">Co-Traveler</span>
+                        <p className="font-bold text-slate-800 text-xs leading-none">{booking.pax_count - 1} Co-Traveler{booking.pax_count - 1 > 1 ? 's' : ''}</p>
+                        <span className="text-[9px] text-slate-400 mt-1 block uppercase font-bold">Group Roster</span>
                       </div>
-                      <button onClick={() => navigate('/my-account')} className="text-[9px] font-black bg-red-50 text-red-500 px-2.5 py-1 rounded-lg hover:bg-red-100">
-                        Upload ID
+                      <button type="button" onClick={() => navigate('/my-account', { state: { tab: 'travelers' } })} className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition-colors shrink-0">
+                        Update Profiles
                       </button>
                     </div>
                   )}
@@ -1193,7 +1226,7 @@ export const BookingDetail: React.FC = () => {
                                       body: formData
                                     });
                                     if (res.ok) {
-                                      alert('Document uploaded successfully!');
+                                      toast.success('Document uploaded successfully!');
                                       // Refresh visa status
                                       const visaRes = await fetch(`${API_BASE}/api/customer/visa-status?bookingId=${id}`, {
                                         headers: { 'Authorization': `Bearer ${token}` }
@@ -1203,10 +1236,10 @@ export const BookingDetail: React.FC = () => {
                                       }
                                     } else {
                                       const errData = await res.json();
-                                      alert(errData.error || 'Failed to upload document');
+                                      toast.error(errData.error || 'Failed to upload document');
                                     }
                                   } catch (err) {
-                                    alert('Error uploading document.');
+                                    toast.error('Error uploading document.');
                                   } finally {
                                     setVisaUploadLoading(null);
                                   }
@@ -1275,12 +1308,12 @@ export const BookingDetail: React.FC = () => {
 
               {/* Actions panel */}
               {booking.status !== 'cancelled' && booking.status !== 'completed' && (
-                <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3 font-semibold text-xs text-slate-650">
+                <div className="bg-white rounded-3xl p-5 border border-[#EDE8DF] shadow-sm space-y-3 font-semibold text-xs text-slate-600">
                   <h3 className="font-display font-bold text-xs uppercase tracking-wider text-slate-400">Operations Panel</h3>
-                  <button onClick={() => setShowRescheduleModal(true)} className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600">
+                  <button type="button" onClick={() => setShowRescheduleModal(true)} className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 transition-colors">
                     Request Date Change
                   </button>
-                  <button onClick={() => setShowCancelModal(true)} className="w-full py-2.5 text-xs font-bold border border-red-200 text-red-500 rounded-xl hover:bg-red-50">
+                  <button type="button" onClick={() => setShowCancelModal(true)} className="w-full py-2.5 text-xs font-bold border border-red-200 text-red-600 rounded-xl hover:bg-red-50 transition-colors">
                     Request Cancellation
                   </button>
                 </div>
@@ -1294,7 +1327,7 @@ export const BookingDetail: React.FC = () => {
                   href={`${API_BASE}/api/customer/bookings/${booking.id}/invoice/print?token=${localStorage.getItem(CUSTOMER_JWT_KEY)}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-650 flex items-center justify-center gap-2 transition-colors"
+                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center justify-center gap-2 transition-colors"
                 >
                   <span className="material-symbols-outlined text-[16px] text-primary" style={{ color: '#C9732A' }}>download</span>
                   Download GST Invoice
@@ -1304,7 +1337,7 @@ export const BookingDetail: React.FC = () => {
                   href={`${API_BASE}/api/customer/bookings/${booking.id}/receipt/print?token=${localStorage.getItem(CUSTOMER_JWT_KEY)}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-655 flex items-center justify-center gap-2 transition-colors"
+                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center justify-center gap-2 transition-colors"
                 >
                   <span className="material-symbols-outlined text-[16px] text-primary" style={{ color: '#C9732A' }}>receipt_long</span>
                   Download Payment Receipt
@@ -1314,7 +1347,7 @@ export const BookingDetail: React.FC = () => {
                   href={`${API_BASE}/api/customer/bookings/${booking.id}/visa-letter/print?token=${localStorage.getItem(CUSTOMER_JWT_KEY)}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-655 flex items-center justify-center gap-2 transition-colors"
+                  className="w-full py-2.5 text-xs font-bold border rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center justify-center gap-2 transition-colors"
                 >
                   <span className="material-symbols-outlined text-[16px] text-primary" style={{ color: '#C9732A' }}>description</span>
                   Visa Support Letter
@@ -1329,28 +1362,119 @@ export const BookingDetail: React.FC = () => {
 
       </div>
 
+      {/* ── MODAL: BANK TRANSFER / UTR PAYMENT RECEIPT ── */}
+      {showPayModal && (
+        <div role="dialog" aria-modal="true" aria-label="Submit Payment Proof" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative">
+            <button type="button" aria-label="Close payment modal" onClick={() => setShowPayModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+              <span className="material-symbols-outlined">close</span>
+            </button>
+            <h3 className="font-display font-bold text-lg text-slate-900 mb-1">Submit Payment Proof</h3>
+            <p className="text-xs text-slate-500 mb-4">Log your bank transfer (NEFT/RTGS/UPI) details for staff verification.</p>
+            {payError && (
+              <div role="alert" className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-semibold flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px] shrink-0">error</span>
+                <span>{payError}</span>
+              </div>
+            )}
+            <form onSubmit={handlePaymentSubmit} className="space-y-4 font-semibold text-xs">
+              <div>
+                <label htmlFor="bd-pay-amount" className="text-[10px] text-slate-500 block uppercase font-bold mb-1">Amount (₹) *</label>
+                <input
+                  id="bd-pay-amount"
+                  type="number"
+                  required
+                  min={1}
+                  placeholder={String(balanceDue)}
+                  value={payAmount}
+                  onChange={e => setPayAmount(e.target.value)}
+                  className="w-full p-3 bg-slate-50 border border-[#EDE8DF] rounded-xl text-xs focus:outline-none focus:border-[#C9732A]"
+                />
+              </div>
+              <div>
+                <label htmlFor="bd-pay-method" className="text-[10px] text-slate-500 block uppercase font-bold mb-1">Payment Method</label>
+                <BrandSelect
+                  id="bd-pay-method"
+                  labelText="Payment Method"
+                  value={payMethod}
+                  onChange={e => setPayMethod(e.target.value)}
+                  className="w-full p-3 bg-slate-50 border border-[#EDE8DF] rounded-xl text-xs focus:outline-none focus:border-[#C9732A] font-medium"
+                >
+                  <option value="UPI / GPay / PhonePe">UPI (GPay / PhonePe / Paytm)</option>
+                  <option value="Bank NEFT / RTGS">Bank NEFT / RTGS</option>
+                  <option value="Credit / Debit Card">Credit / Debit Card</option>
+                  <option value="Cash Deposit">Cash Deposit</option>
+                </BrandSelect>
+              </div>
+              <div>
+                <label htmlFor="bd-pay-ref" className="text-[10px] text-slate-500 block uppercase font-bold mb-1">Transaction Ref / UTR *</label>
+                <input
+                  id="bd-pay-ref"
+                  type="text"
+                  required
+                  placeholder="e.g. 423871928371"
+                  value={payRef}
+                  onChange={e => setPayRef(e.target.value)}
+                  className="w-full p-3 bg-slate-50 border border-[#EDE8DF] rounded-xl text-xs focus:outline-none focus:border-[#C9732A] font-mono"
+                />
+              </div>
+              <div>
+                <label htmlFor="bd-pay-notes" className="text-[10px] text-slate-500 block uppercase font-bold mb-1">Notes (Optional)</label>
+                <input
+                  id="bd-pay-notes"
+                  type="text"
+                  placeholder="Account holder name or remarks"
+                  value={payNotes}
+                  onChange={e => setPayNotes(e.target.value)}
+                  className="w-full p-3 bg-slate-50 border border-[#EDE8DF] rounded-xl text-xs focus:outline-none focus:border-[#C9732A]"
+                />
+              </div>
+              <div>
+                <label htmlFor="bd-pay-file" className="text-[10px] text-slate-500 block uppercase font-bold mb-1">Upload Receipt Screenshot</label>
+                <input
+                  id="bd-pay-file"
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={e => setPayFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-[#C9732A] file:text-white"
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setShowPayModal(false)} className="flex-1 py-3 border border-[#EDE8DF] text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-50">
+                  Cancel
+                </button>
+                <button type="submit" disabled={payLoading} className="flex-1 py-3 bg-[#C9732A] hover:bg-[#A85E1E] text-white rounded-xl font-bold text-xs shadow-md disabled:opacity-50">
+                  {payLoading ? 'Submitting...' : 'Submit Receipt'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ── MODAL: CANCELLATION REQUEST ── */}
       {showCancelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+        <div role="dialog" aria-modal="true" aria-label="Request Cancellation" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative">
-            <button onClick={() => setShowCancelModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+            <button type="button" aria-label="Close cancellation modal" onClick={() => setShowCancelModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg">
               <span className="material-symbols-outlined">close</span>
             </button>
             <h3 className="font-display font-bold text-lg text-slate-900 mb-2">Request Cancellation</h3>
             <p className="text-xs text-slate-400 mb-4">We are sorry to see you cancel. Please write your reason for cancellation, and our representative will call you back.</p>
             <form onSubmit={handleCancelSubmit} className="space-y-4 font-semibold text-xs">
               <div>
-                <label className="text-[10px] text-slate-400 block uppercase font-bold mb-1">Reason for cancellation</label>
+                <label htmlFor="bd-cancel-reason" className="text-[10px] text-slate-400 block uppercase font-bold mb-1">Reason for cancellation</label>
                 <textarea
+                  id="bd-cancel-reason"
                   rows={4}
                   required
                   placeholder="Explain why you wish to cancel this trip..."
                   value={cancelReason}
                   onChange={e => setCancelReason(e.target.value)}
-                  className="w-full p-3 bg-slate-50 border rounded-xl text-xs focus:outline-none"
+                  className="w-full p-3 bg-slate-50 border rounded-xl text-xs focus:outline-none focus:border-[#C9732A]"
                 />
               </div>
-              <button type="submit" disabled={cancelLoading} className="w-full py-3 bg-red-650 text-white rounded-xl font-bold text-xs shadow-md" style={{ backgroundColor: '#C62828' }}>
+              <button type="submit" disabled={cancelLoading} className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs shadow-md transition-colors disabled:opacity-50">
                 {cancelLoading ? 'Submitting Request...' : 'Submit Cancellation Request'}
               </button>
             </form>
@@ -1360,27 +1484,30 @@ export const BookingDetail: React.FC = () => {
 
       {/* ── MODAL: RESCHEDULE REQUEST ── */}
       {showRescheduleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+        <div role="dialog" aria-modal="true" aria-label="Request Date Change" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative">
-            <button onClick={() => setShowRescheduleModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+            <button type="button" aria-label="Close reschedule modal" onClick={() => setShowRescheduleModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg">
               <span className="material-symbols-outlined">close</span>
             </button>
             <h3 className="font-display font-bold text-lg text-slate-900 mb-2">Request Date Change</h3>
             <p className="text-xs text-slate-400 mb-4">Choose a new preferred date and provide details. Our operations team will check availability and confirm.</p>
             <form onSubmit={handleRescheduleSubmit} className="space-y-4 font-semibold text-xs">
               <div>
-                <label className="text-[10px] text-slate-400 block uppercase font-bold mb-1">Requested Travel Date</label>
-                <input
-                  type="date"
+                <label htmlFor="bd-reschedule-date" className="text-[10px] text-slate-400 block uppercase font-bold mb-1">Requested Travel Date</label>
+                <BrandDatePicker
+                  id="bd-reschedule-date"
+                  labelText="Requested Travel Date"
                   required
+                  min={new Date().toISOString().split('T')[0]}
                   value={rescheduleDate}
                   onChange={e => setRescheduleDate(e.target.value)}
-                  className="w-full p-3 bg-slate-50 border rounded-xl text-xs focus:outline-none font-sans"
+                  className="w-full p-3 bg-slate-50 border border-[#EDE8DF] rounded-xl text-xs focus:outline-none focus:border-[#C9732A] font-sans"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-slate-400 block uppercase font-bold mb-1">Reason / Details</label>
+                <label htmlFor="bd-reschedule-reason" className="text-[10px] text-slate-400 block uppercase font-bold mb-1">Reason / Details</label>
                 <textarea
+                  id="bd-reschedule-reason"
                   rows={3}
                   required
                   placeholder="Describe your reschedule request..."
@@ -1398,9 +1525,9 @@ export const BookingDetail: React.FC = () => {
       )}
       {/* ── MODAL: LIVE DRIVER TRACKING ── */}
       {showDriverTrackingModal && driverAllocation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+        <div role="dialog" aria-modal="true" aria-label="Live Driver Location Tracking" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-2xl shadow-2xl relative">
-            <button onClick={() => setShowDriverTrackingModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+            <button type="button" aria-label="Close live tracking modal" onClick={() => setShowDriverTrackingModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg">
               <span className="material-symbols-outlined">close</span>
             </button>
             <h3 className="font-display font-bold text-lg text-slate-900 mb-1 flex items-center gap-1.5">

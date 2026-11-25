@@ -22,6 +22,7 @@ import { PartnerAuthProvider } from './context/PartnerAuthContext';
 import { CustomerAuthProvider } from './context/CustomerAuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { ToastProvider } from './components/ui/Toast';
+import { ConfirmProvider } from './components/ui/ConfirmDialog';
 
 import { CustomerGuard } from './components/customer/CustomerGuard';
 
@@ -61,6 +62,7 @@ const StaffManagement = lazy(() => import('./pages/admin/StaffManagement').then(
 const TeamPerformance = lazy(() => import('./pages/admin/TeamPerformance').then(module => ({ default: module.TeamPerformance })));
 const Bookings = lazy(() => import('./pages/admin/Bookings').then(module => ({ default: module.Bookings })));
 const AdminLeads = lazy(() => import('./pages/admin/Leads').then(module => ({ default: module.Leads })));
+const Marketing = lazy(() => import('./pages/admin/Marketing').then(module => ({ default: module.Marketing })));
 const AdminCustomers = lazy(() => import('./pages/admin/Customers').then(module => ({ default: module.Customers })));
 const AdminPackages = lazy(() => import('./pages/admin/Packages').then(module => ({ default: module.AdminPackages })));
 const Vendors = lazy(() => import('./pages/admin/Vendors').then(module => ({ default: module.Vendors })));
@@ -128,6 +130,7 @@ const App: React.FC = () => {
           <SettingsProvider>
         <DataProvider>
           <ToastProvider />
+          <ConfirmProvider />
           <BrowserRouter>
             <HashRedirectNormalizer />
             <Suspense fallback={<PageLoader />}>
@@ -220,6 +223,7 @@ const App: React.FC = () => {
                   <Route path="partners" element={<PartnerManager />} />
                   <Route path="kyc" element={<AdminKYCManager />} />
                   <Route path="coupons" element={<CouponManager />} />
+                  <Route path="marketing" element={<Marketing />} />
                   <Route path="marketing-logs" element={<MarketingLogs />} />
                   <Route path="trending" element={<TrendingDestinationsManager />} />
                   <Route path="offer-banners" element={<OfferBannersManager />} />

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../../context/CustomerAuthContext';
 import { useData } from '../../context/DataContext';
 import { getLocationName, formatPrice, formatPriceCompact, formatTripDuration } from '../../utils/packageUtils';
 import { generatePackingChecklist, OPENROUTER_FREE_MODELS } from '../../src/lib/gemini';
 import { InteractiveIndiaExplorer } from '../../components/customer/InteractiveIndiaExplorer';
+import { BrandSelect } from '../../components/ui/BrandSelect';
+import { BrandDatePicker } from '../../components/ui/BrandDatePicker';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -159,6 +161,7 @@ export const CustomerDashboard: React.FC = () => {
   const { customer, logout, refreshCustomer } = useCustomerAuth();
   const { packages } = useData();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Primary Tab Control: 'bookings' | 'documents' | 'wishlist' | 'travelers' | 'membership'
   const [activeSubTab, setActiveSubTab] = useState<'bookings' | 'documents' | 'wishlist' | 'travelers' | 'membership'>('bookings');
@@ -264,7 +267,7 @@ export const CustomerDashboard: React.FC = () => {
   const [payFile, setPayFile] = useState<File | null>(null);
   const [payLoading, setPayLoading] = useState(false);
   const [ratingFeedback, setRatingFeedback] = useState<number>(5);
-  const [commentFeedback, setCommentFeedback] = useState<string>('');
+  const [reviewComments, setReviewComments] = useState<Record<string, string>>({});
   const [reviewLoading, setReviewLoading] = useState(false);
 
   const handleLogout = () => {
@@ -447,7 +450,7 @@ export const CustomerDashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [activeBooking]);
 
-  // Global Keyboard Listener for Command Palette
+  // Global Keyboard & Outside-Click Listeners for Command Palette, Modals & Dropdowns
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -456,10 +459,25 @@ export const CustomerDashboard: React.FC = () => {
       }
       if (e.key === 'Escape') {
         setShowCommandPalette(false);
+        setShowNotificationDropdown(false);
+        setShowSupportModal(false);
+        setShowUploadModal(false);
+        setShowChecklistModal(false);
+        setShowPayModal(false);
+        setShowProfileModal(false);
+      }
+    };
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotificationDropdown(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
   // ── Fetch Wishlist ──
@@ -979,19 +997,21 @@ export const CustomerDashboard: React.FC = () => {
     }
   };
 
-  // Review submission
+  // Review submission (per-booking comment state)
   const handleReviewSubmit = async (bookingId: string) => {
+    const comment = (reviewComments[bookingId] || '').trim();
+    if (!comment) return;
     setReviewLoading(true);
     try {
       const token = localStorage.getItem(CUSTOMER_JWT_KEY);
       const res = await fetch(`${API_BASE}/api/customer/bookings/${bookingId}/review`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rating: ratingFeedback, comment: commentFeedback })
+        body: JSON.stringify({ rating: ratingFeedback, comment })
       });
       if (!res.ok) throw new Error('Failed to submit review');
       showToast('success', 'Thank you for your feedback!');
-      setCommentFeedback('');
+      setReviewComments(prev => ({ ...prev, [bookingId]: '' }));
       fetchBookings();
     } catch (err: any) {
       showToast('error', err.message);
@@ -999,6 +1019,21 @@ export const CustomerDashboard: React.FC = () => {
       setReviewLoading(false);
     }
   };
+
+  // Sync tab or modal requests passed via router state (e.g. from BookingDetail sidebar)
+  useEffect(() => {
+    const state = location.state as { tab?: string; openModal?: 'profile' | 'support' } | null;
+    if (!state) return;
+    if (state.tab && ['bookings', 'documents', 'wishlist', 'travelers', 'membership'].includes(state.tab)) {
+      setActiveSubTab(state.tab as any);
+    }
+    if (state.openModal === 'profile') {
+      setShowProfileModal(true);
+    } else if (state.openModal === 'support') {
+      setShowSupportModal(true);
+      fetchChat();
+    }
+  }, [location.state, fetchChat]);
 
   // Initial data loading on mount
   useEffect(() => {
@@ -1103,42 +1138,49 @@ export const CustomerDashboard: React.FC = () => {
         <div className="flex items-center gap-2 sm:gap-3">
           {/* Quick Search trigger */}
           <button
+            type="button"
             onClick={() => setShowCommandPalette(true)}
             className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-[#F9F7F2] hover:bg-white border border-[#EDE8DF] rounded-xl text-xs text-slate-500 font-medium transition-colors"
             title="Search (⌘K / Ctrl+K)"
+            aria-label="Open quick search"
           >
-            <span className="material-symbols-outlined text-[17px] text-[#C9732A]">search</span>
+            <span className="material-symbols-outlined text-[17px] text-[#C9732A]" aria-hidden="true">search</span>
             <span>Search</span>
             <kbd className="bg-white border border-[#EDE8DF] px-1 rounded text-[10px] text-slate-400">⌘K</kbd>
           </button>
 
           {/* Concierge Chat Icon */}
           <button
+            type="button"
             onClick={() => { setShowSupportModal(true); fetchChat(); }}
             className="relative p-2.5 text-slate-600 hover:text-slate-900 bg-[#F9F7F2] hover:bg-white rounded-xl border border-[#EDE8DF] transition-all flex items-center justify-center"
             title="Travel Concierge Chat"
+            aria-label="Open travel concierge chat"
           >
-            <span className="material-symbols-outlined text-[20px]">support_agent</span>
+            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">support_agent</span>
           </button>
 
           {/* Notifications Bell */}
           <div className="relative" ref={notifRef}>
             <button
+              type="button"
               onClick={() => {
                 setShowNotificationDropdown(!showNotificationDropdown);
                 if (!showNotificationDropdown) handleMarkNotificationsRead();
               }}
+              aria-expanded={showNotificationDropdown}
+              aria-label="Notifications"
               className="relative p-2.5 text-slate-600 hover:text-slate-900 bg-[#F9F7F2] hover:bg-white rounded-xl border border-[#EDE8DF] transition-all flex items-center justify-center"
               title="Notifications"
             >
-              <span className="material-symbols-outlined text-[20px]">notifications</span>
+              <span className="material-symbols-outlined text-[20px]" aria-hidden="true">notifications</span>
               {unreadCount > 0 && (
                 <span className="absolute top-2 right-2 size-2 bg-orange-600 rounded-full animate-pulse" />
               )}
             </button>
 
             {showNotificationDropdown && (
-              <div className="absolute right-0 mt-3 w-80 bg-white border border-[#EDE8DF] rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div role="region" aria-label="Inbox Notifications" className="absolute right-0 mt-3 w-80 max-w-[calc(100vw-2rem)] bg-white border border-[#EDE8DF] rounded-2xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="p-4 border-b border-[#EDE8DF] flex justify-between items-center bg-[#FDFBF7]">
                   <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Inbox Notifications</h3>
                   {unreadCount > 0 && <span className="text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">New</span>}
@@ -1485,15 +1527,17 @@ export const CustomerDashboard: React.FC = () => {
                       <div className="flex items-center gap-3">
                         <input
                           type="text"
+                          aria-label={`Travel review for ${trip.package_name || trip.destination || 'trip'}`}
                           placeholder="Share your travel review..."
-                          value={commentFeedback}
-                          onChange={e => setCommentFeedback(e.target.value)}
-                          className="px-3 py-1.5 text-xs border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A] w-48 sm:w-64"
+                          value={reviewComments[trip.id] || ''}
+                          onChange={e => setReviewComments(prev => ({ ...prev, [trip.id]: e.target.value }))}
+                          className="px-3 py-1.5 text-xs border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A] w-full sm:w-64"
                         />
                         <button
+                          type="button"
                           onClick={() => handleReviewSubmit(trip.id)}
-                          disabled={reviewLoading || !commentFeedback.trim()}
-                          className="px-4 py-2 bg-[#2D6A4F] text-white text-xs font-bold rounded-xl hover:bg-[#1e4835] transition-colors disabled:opacity-50"
+                          disabled={reviewLoading || !(reviewComments[trip.id] || '').trim()}
+                          className="px-4 py-2 bg-[#2D6A4F] text-white text-xs font-bold rounded-xl hover:bg-[#1e4835] transition-colors disabled:opacity-50 shrink-0"
                         >
                           Submit
                         </button>
@@ -1874,17 +1918,18 @@ export const CustomerDashboard: React.FC = () => {
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Relationship</label>
-                  <select
+                  <BrandSelect
                     value={coTravelerForm.relation}
+                    labelText="Relationship"
                     onChange={e => setCoTravelerForm({ ...coTravelerForm, relation: e.target.value })}
-                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A] font-medium"
                   >
                     <option value="Spouse">Spouse</option>
                     <option value="Child">Child</option>
                     <option value="Parent">Parent</option>
                     <option value="Friend">Friend</option>
                     <option value="Colleague">Colleague</option>
-                  </select>
+                  </BrandSelect>
                 </div>
 
                 <div>
@@ -1911,11 +1956,11 @@ export const CustomerDashboard: React.FC = () => {
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Date of Birth</label>
-                  <input
-                    type="date"
+                  <BrandDatePicker
                     value={coTravelerForm.dob}
+                    labelText="Date of Birth"
                     onChange={e => setCoTravelerForm({ ...coTravelerForm, dob: e.target.value })}
-                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A]"
+                    className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none focus:border-[#C9732A] font-medium"
                   />
                 </div>
 
@@ -2143,8 +2188,8 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Concierge Support Chat Modal */}
       {showSupportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-lg shadow-2xl flex flex-col h-[520px] overflow-hidden">
+        <div role="dialog" aria-modal="true" aria-label="Shrawello Concierge Chat" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-lg shadow-2xl flex flex-col h-[520px] max-h-[88vh] overflow-hidden">
             <div className="p-4 border-b border-[#EDE8DF] bg-[#FDFBF7] flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="size-9 rounded-full bg-[#2D6A4F] text-white flex items-center justify-center font-bold text-xs">
@@ -2155,12 +2200,12 @@ export const CustomerDashboard: React.FC = () => {
                   <span className="text-[10px] text-emerald-600 font-bold block">Online • Dedicated Travel Support</span>
                 </div>
               </div>
-              <button onClick={() => setShowSupportModal(false)} className="text-slate-400 hover:text-slate-700">
+              <button type="button" aria-label="Close concierge chat" onClick={() => setShowSupportModal(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
-            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#F9F7F2]/40">
+            <div className="flex-1 p-4 overflow-y-auto overscroll-contain space-y-3 bg-[#F9F7F2]/40">
               {chatMessages.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-xs">
                   Say hello! Our travel operations desk is ready to assist with flights, hotels, or custom itineraries.
@@ -2169,7 +2214,7 @@ export const CustomerDashboard: React.FC = () => {
                 chatMessages.map(m => (
                   <div key={m.id} className={`flex ${m.sender_type === 'customer' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] p-3 rounded-2xl text-xs leading-relaxed ${
-                      m.sender_type === 'customer' ? 'bg-[#2D6A4F] text-white rounded-br-xs' : 'bg-white text-slate-800 border border-[#EDE8DF] rounded-bl-xs shadow-2xs'
+                      m.sender_type === 'customer' ? 'bg-[#2D6A4F] text-white rounded-br-sm' : 'bg-white text-slate-800 border border-[#EDE8DF] rounded-bl-sm shadow-sm'
                     }`}>
                       {m.message}
                     </div>
@@ -2196,11 +2241,11 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Document Upload Modal */}
       {showUploadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div role="dialog" aria-modal="true" aria-label="Upload to Secure Vault" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-display font-bold text-base text-slate-900">Upload to Secure Vault</h3>
-              <button onClick={() => setShowUploadModal(false)} className="text-slate-400 hover:text-slate-700">
+              <button type="button" aria-label="Close upload modal" onClick={() => setShowUploadModal(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -2208,10 +2253,11 @@ export const CustomerDashboard: React.FC = () => {
             <form onSubmit={handleDocUpload} className="space-y-4">
               <div>
                 <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Document Category</label>
-                <select
+                <BrandSelect
                   value={docType}
+                  labelText="Document Category"
                   onChange={e => setDocType(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                  className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none font-medium"
                 >
                   <option value="Passport">Passport Biodata</option>
                   <option value="Visa">Visa Copy</option>
@@ -2219,7 +2265,7 @@ export const CustomerDashboard: React.FC = () => {
                   <option value="Hotel Voucher">Hotel Voucher</option>
                   <option value="Insurance">Travel Insurance</option>
                   <option value="Invoice">Payment Receipt / Invoice</option>
-                </select>
+                </BrandSelect>
               </div>
 
               <div>
@@ -2256,11 +2302,11 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Account Settings & Password Modal */}
       {showProfileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto">
+        <div role="dialog" aria-modal="true" aria-label="Account and Profile Settings" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowProfileModal(false)}>
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto overscroll-contain" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-6 pb-3 border-b border-[#EDE8DF]">
               <h3 className="font-display font-bold text-lg text-slate-900">Account & Profile Settings</h3>
-              <button onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-slate-700">
+              <button type="button" aria-label="Close account settings" onClick={() => setShowProfileModal(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -2357,19 +2403,20 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Command Palette Modal (⌘K) */}
       {showCommandPalette && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-lg shadow-2xl overflow-hidden">
+        <div role="dialog" aria-modal="true" aria-label="Quick navigation search" className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowCommandPalette(false)}>
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-[#EDE8DF] flex items-center gap-3">
-              <span className="material-symbols-outlined text-[20px] text-slate-400">search</span>
+              <span className="material-symbols-outlined text-[20px] text-slate-400" aria-hidden="true">search</span>
               <input
                 type="text"
                 autoFocus
+                aria-label="Search portal sections"
                 placeholder="Quick jump to Trips, Documents, Wishlist, Concierge..."
                 value={commandQuery}
                 onChange={e => setCommandQuery(e.target.value)}
                 className="flex-1 text-xs outline-none bg-transparent"
               />
-              <button onClick={() => setShowCommandPalette(false)} className="text-slate-400 hover:text-slate-700">
+              <button type="button" aria-label="Close quick search" onClick={() => setShowCommandPalette(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
@@ -2400,14 +2447,14 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* AI Packing Checklist Modal */}
       {showChecklistModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto">
+        <div role="dialog" aria-modal="true" aria-label="AI Trip Packing Checklist" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowChecklistModal(false)}>
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto overscroll-contain" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#EDE8DF]">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[24px] text-[#C9732A]">checklist</span>
                 <h3 className="font-display font-bold text-base text-slate-900">AI Trip Packing Checklist</h3>
               </div>
-              <button onClick={() => setShowChecklistModal(false)} className="text-slate-400 hover:text-slate-700">
+              <button type="button" aria-label="Close packing checklist" onClick={() => setShowChecklistModal(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -2416,29 +2463,31 @@ export const CustomerDashboard: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Expected Climate</label>
-                  <select
+                  <BrandSelect
                     value={packingWeather}
+                    labelText="Expected Climate"
                     onChange={e => setPackingWeather(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                    className="w-full px-3 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none font-medium"
                   >
                     <option value="Tropical / Sunny">Tropical / Sunny</option>
                     <option value="Mild / Mixed">Mild / Mixed</option>
                     <option value="Snow / Winter">Snow / Winter</option>
                     <option value="Rainy / Monsoon">Rainy / Monsoon</option>
-                  </select>
+                  </BrandSelect>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Activity Focus</label>
-                  <select
+                  <BrandSelect
                     value={packingActivity}
+                    labelText="Activity Focus"
                     onChange={e => setPackingActivity(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                    className="w-full px-3 py-2 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none font-medium"
                   >
                     <option value="Leisure & Sightseeing">Leisure & Sightseeing</option>
                     <option value="Beach & Water Sports">Beach & Water Sports</option>
                     <option value="Trekking & Adventure">Trekking & Adventure</option>
                     <option value="Business & Events">Business & Events</option>
-                  </select>
+                  </BrandSelect>
                 </div>
               </div>
 
@@ -2477,11 +2526,11 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Pay Modal for balance due */}
       {showPayModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-md shadow-2xl">
+        <div role="dialog" aria-modal="true" aria-label="Submit Payment Proof" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowPayModal(false)}>
+          <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-[#EDE8DF]">
               <h3 className="font-display font-bold text-base text-slate-900">Submit Payment Proof</h3>
-              <button onClick={() => setShowPayModal(false)} className="text-slate-400 hover:text-slate-700">
+              <button type="button" aria-label="Close payment modal" onClick={() => setShowPayModal(false)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -2501,16 +2550,17 @@ export const CustomerDashboard: React.FC = () => {
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Payment Method</label>
-                <select
+                <BrandSelect
                   value={payForm.method}
+                  labelText="Payment Method"
                   onChange={e => setPayForm({ ...payForm, method: e.target.value })}
-                  className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none"
+                  className="w-full px-3.5 py-2.5 text-xs bg-[#FDFBF7] border border-[#EDE8DF] rounded-xl outline-none font-medium"
                 >
                   <option value="UPI / GPay / PhonePe">UPI (GPay / PhonePe / Paytm)</option>
                   <option value="Bank NEFT / RTGS">Bank NEFT / RTGS</option>
                   <option value="Credit / Debit Card">Credit / Debit Card</option>
                   <option value="Cash Deposit">Cash Deposit</option>
-                </select>
+                </BrandSelect>
               </div>
 
               <div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
 import { toast } from 'sonner';
+import { BrandSelect } from './BrandSelect';
 
 interface LeadCaptureModalProps {
   isOpen: boolean;
@@ -243,19 +244,20 @@ export const LeadCaptureModal: React.FC<LeadCaptureModalProps> = ({
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                   What kind of trip do you prefer? <span className="text-rose-500">*</span>
                 </label>
-                <select
+                <BrandSelect
                   value={category}
                   onChange={e => setCategory(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-[#C9732A]"
+                  labelText="Trip Category"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-[#C9732A]"
                   required
                 >
-                  <option value="" className="text-slate-400">Select a category</option>
+                  <option value="">Select a category</option>
                   {CATEGORY_OPTIONS.map(opt => (
-                    <option key={opt} value={opt} className="text-slate-900 bg-white dark:bg-slate-900">
+                    <option key={opt} value={opt}>
                       {opt}
                     </option>
                   ))}
-                </select>
+                </BrandSelect>
               </div>
 
               {/* Destination Location Selection */}
@@ -263,18 +265,19 @@ export const LeadCaptureModal: React.FC<LeadCaptureModalProps> = ({
                 <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Where do you want to go?
                 </label>
-                <select
+                <BrandSelect
                   value={location}
                   onChange={e => setLocation(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-xs focus:outline-none focus:border-[#C9732A]"
+                  labelText="Destination"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white text-xs font-medium focus:outline-none focus:border-[#C9732A]"
                 >
-                  <option value="" className="text-slate-400">Select A Location</option>
+                  <option value="">Select A Location</option>
                   {LOCATION_OPTIONS.map(loc => (
-                    <option key={loc} value={loc} className="text-slate-900 bg-white dark:bg-slate-900">
+                    <option key={loc} value={loc}>
                       {loc}
                     </option>
                   ))}
-                </select>
+                </BrandSelect>
               </div>
 
               {/* WhatsApp Consent Checkbox */}

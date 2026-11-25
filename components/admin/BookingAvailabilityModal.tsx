@@ -5,6 +5,8 @@ import { copyToClipboard } from '../../utils/clipboard';
 import { Booking, AvailabilityRfq, AvailabilityInvite, RfqServiceType } from '../../types';
 import { useData } from '../../context/DataContext';
 import { api } from '../../src/lib/api';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 
 interface Props {
     booking: Booking;
@@ -225,8 +227,8 @@ export const BookingAvailabilityModal: React.FC<Props> = ({ booking, isOpen, onC
                                     <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Requirements</h3>
                                     <div><label className={labelCls}>Destination / city</label><input className={inputCls} value={destination} onChange={e => setDestination(e.target.value)} placeholder="e.g. Manali" /></div>
                                     <div className="grid grid-cols-2 gap-3">
-                                        <div><label className={labelCls}>{service === 'Hotel' ? 'Check-in' : 'From'}</label><input type="date" className={inputCls} value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
-                                        <div><label className={labelCls}>{service === 'Hotel' ? 'Check-out' : 'To'}</label><input type="date" className={inputCls} value={endDate} min={startDate} onChange={e => setEndDate(e.target.value)} /></div>
+                                        <div><label className={labelCls}>{service === 'Hotel' ? 'Check-in' : 'From'}</label><BrandDatePicker labelText={service === 'Hotel' ? 'Check-in' : 'From Date'} className={inputCls} value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
+                                        <div><label className={labelCls}>{service === 'Hotel' ? 'Check-out' : 'To'}</label><BrandDatePicker labelText={service === 'Hotel' ? 'Check-out' : 'To Date'} className={inputCls} value={endDate} min={startDate} onChange={e => setEndDate(e.target.value)} /></div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div><label className={labelCls}>Adults</label><input type="number" min={1} className={inputCls} value={adults} onChange={e => setAdults(Math.max(1, Number(e.target.value)))} /></div>
@@ -237,9 +239,9 @@ export const BookingAvailabilityModal: React.FC<Props> = ({ booking, isOpen, onC
                                             <div className="grid grid-cols-2 gap-3">
                                                 <div><label className={labelCls}>Rooms</label><input type="number" min={1} className={inputCls} value={rooms} onChange={e => setRooms(Math.max(1, Number(e.target.value)))} /></div>
                                                 <div><label className={labelCls}>Meal plan</label>
-                                                    <select className={inputCls} value={meal} onChange={e => setMeal(e.target.value)}>
+                                                    <BrandSelect labelText="Meal plan" className={inputCls} value={meal} onChange={e => setMeal(e.target.value)}>
                                                         {['EP (Room only)', 'CP (Breakfast)', 'MAP (Breakfast + Dinner)', 'AP (All meals)'].map(m => <option key={m}>{m}</option>)}
-                                                    </select></div>
+                                                    </BrandSelect></div>
                                             </div>
                                             <div><label className={labelCls}>Room type</label><input className={inputCls} value={roomType} onChange={e => setRoomType(e.target.value)} placeholder="Deluxe, Suite..." /></div>
                                         </>

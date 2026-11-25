@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
 import { CMSTestimonial } from '../../types';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
 
 export const TestimonialsManager: React.FC = () => {
   const { cmsTestimonials, addTestimonial, updateTestimonial, deleteTestimonial } = useData();
@@ -67,7 +68,13 @@ export const TestimonialsManager: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this testimonial?")) {
+    const ok = await confirmAction({
+      title: 'Delete Testimonial',
+      message: 'Are you sure you want to delete this testimonial?',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (ok) {
       await deleteTestimonial(id);
     }
   };

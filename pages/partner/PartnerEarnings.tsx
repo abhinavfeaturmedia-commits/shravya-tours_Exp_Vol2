@@ -114,10 +114,15 @@ export const PartnerEarnings: React.FC = () => {
             </div>
             <div className="divide-y divide-white/5">
               {filtered.map(c => (
-                <div key={c.id} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_120px_100px] gap-3 px-5 py-4 hover:bg-white/5 transition-colors">
+                <div key={c.id} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_120px_100px] gap-3 px-5 py-4 hover:bg-white/5 transition-colors items-center">
                   <div>
                     <p className="text-sm font-bold text-white">{c.booking_title || 'Booking'}</p>
                     <p className="text-xs text-white/40">{new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                    <div className="sm:hidden mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/60">
+                      <span>{c.customer_name || 'Guest'}</span>
+                      <span>·</span>
+                      <span>Booking: ₹{Number(c.booking_amount).toLocaleString('en-IN')}</span>
+                    </div>
                   </div>
                   <div className="hidden sm:block">
                     <p className="text-sm text-white/80">{c.customer_name || '—'}</p>
@@ -128,9 +133,12 @@ export const PartnerEarnings: React.FC = () => {
                       {c.commission_type === 'Percentage' ? `${c.commission_rate}% rate` : 'Flat rate'}
                     </p>
                   </div>
-                  <div>
-                    <p className="text-sm font-black text-emerald-300">₹{Number(c.commission_amount).toLocaleString('en-IN')}</p>
-                    {c.paid_at && <p className="text-xs text-white/30">Paid: {new Date(c.paid_at).toLocaleDateString('en-IN')}</p>}
+                  <div className="flex sm:block items-center justify-between">
+                    <span className="sm:hidden text-xs text-white/50 font-semibold">Your Commission</span>
+                    <div>
+                      <p className="text-sm font-black text-emerald-300">₹{Number(c.commission_amount).toLocaleString('en-IN')}</p>
+                      {c.paid_at && <p className="text-xs text-white/30">Paid: {new Date(c.paid_at).toLocaleDateString('en-IN')}</p>}
+                    </div>
                   </div>
                   <div>
                     <span className={`inline-flex items-center text-[11px] px-2.5 py-1 rounded-full font-bold border ${statusBadge[c.status] || 'bg-white/10 text-white/50 border-white/20'}`}>

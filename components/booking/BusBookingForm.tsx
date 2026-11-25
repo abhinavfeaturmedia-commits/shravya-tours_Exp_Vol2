@@ -2,6 +2,8 @@ import React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 
 // Validation schema
 const busBookingSchema = z.object({
@@ -82,10 +84,10 @@ export const BusBookingForm: React.FC<BusBookingFormProps> = ({ onSubmit }) => {
                 {/* Date */}
                 <div className="sm:col-span-2 md:col-span-4">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Date</label>
-                    <input
+                    <BrandDatePicker
                         {...register('date')}
-                        className={`w-full px-3 py-3 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.date ? 'border-red-400' : 'border-transparent'}`}
-                        type="date"
+                        labelText="Travel Date"
+                        className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all ${errors.date ? 'border-red-400' : 'border-transparent'}`}
                         min={today}
                     />
                     {errors.date && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.date.message}</p>}
@@ -94,32 +96,28 @@ export const BusBookingForm: React.FC<BusBookingFormProps> = ({ onSubmit }) => {
                 {/* AC Type */}
                 <div className="sm:col-span-1 md:col-span-3 relative group">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">AC Type</label>
-                    <div className="relative">
-                        <select
-                            {...register('acType')}
-                            className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all outline-none appearance-none cursor-pointer ${errors.acType ? 'border-red-400' : 'border-transparent'}`}
-                        >
-                            <option value="AC">AC</option>
-                            <option value="Non-AC">Non-AC</option>
-                        </select>
-                        <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-                    </div>
+                    <BrandSelect
+                        {...register('acType')}
+                        labelText="AC Type"
+                        className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all outline-none ${errors.acType ? 'border-red-400' : 'border-transparent'}`}
+                    >
+                        <option value="AC">AC</option>
+                        <option value="Non-AC">Non-AC</option>
+                    </BrandSelect>
                 </div>
 
                 {/* Bus Type */}
                 <div className="sm:col-span-1 md:col-span-3 relative group">
                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 block pl-1">Seat Type</label>
-                    <div className="relative">
-                        <select
-                            {...register('busType')}
-                            className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all outline-none appearance-none cursor-pointer ${errors.busType ? 'border-red-400' : 'border-transparent'}`}
-                        >
-                            <option value="Seater">Seater</option>
-                            <option value="Semi Seater">Semi Seater</option>
-                            <option value="Sleeper">Sleeper</option>
-                        </select>
-                        <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
-                    </div>
+                    <BrandSelect
+                        {...register('busType')}
+                        labelText="Seat Type"
+                        className={`w-full px-3 py-3 h-[52px] bg-slate-100 dark:bg-slate-800 border-2 rounded-xl focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-white font-bold text-sm transition-all outline-none ${errors.busType ? 'border-red-400' : 'border-transparent'}`}
+                    >
+                        <option value="Seater">Seater</option>
+                        <option value="Semi Seater">Semi Seater</option>
+                        <option value="Sleeper">Sleeper</option>
+                    </BrandSelect>
                 </div>
 
                 {/* Seats */}

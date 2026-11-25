@@ -4,6 +4,8 @@ import { copyToClipboard } from '../../utils/clipboard';
 import { HotelAvailabilityRequest, HotelAvailabilityStatus } from '../../types';
 import { useData } from '../../context/DataContext';
 import { toast } from 'sonner';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 import {
     Building2, Calendar, Bed, Utensils, Users, CheckCircle2,
     XCircle, AlertCircle, Clock, Copy, MessageCircle, Mail,
@@ -478,8 +480,8 @@ export const HotelAvailabilityModal: React.FC<HotelAvailabilityModalProps> = ({
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <label className="text-[10px] font-semibold text-slate-400 mb-0.5 block">Check-in</label>
-                                            <input
-                                                type="date"
+                                            <BrandDatePicker
+                                                labelText="Check-in Date"
                                                 value={checkInDate}
                                                 onChange={(e) => setCheckInDate(e.target.value)}
                                                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
@@ -487,8 +489,8 @@ export const HotelAvailabilityModal: React.FC<HotelAvailabilityModalProps> = ({
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-semibold text-slate-400 mb-0.5 block">Check-out</label>
-                                            <input
-                                                type="date"
+                                            <BrandDatePicker
+                                                labelText="Check-out Date"
                                                 min={checkInDate || undefined}
                                                 value={checkOutDate}
                                                 onChange={(e) => setCheckOutDate(e.target.value)}
@@ -557,15 +559,16 @@ export const HotelAvailabilityModal: React.FC<HotelAvailabilityModalProps> = ({
                                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
                                         <Utensils size={12} className="text-slate-400" /> Meal Plan
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         value={mealPlan}
+                                        labelText="Meal Plan"
                                         onChange={(e) => setMealPlan(e.target.value)}
-                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+                                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
                                     >
                                         {MEAL_PLANS.map(mp => (
                                             <option key={mp.value} value={mp.value}>{mp.label}</option>
                                         ))}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
 
                                 {/* Room Count & Occupancy (3 Columns) */}

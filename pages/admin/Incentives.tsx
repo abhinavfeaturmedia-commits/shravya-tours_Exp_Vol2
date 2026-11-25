@@ -14,6 +14,8 @@ import {
     Unlock, FileSpreadsheet, Building2, Send, Target, Copy, Save, Calendar
 } from 'lucide-react';
 import { toast } from 'sonner';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 interface IncentivesProps {
     defaultTab?: string;
@@ -618,7 +620,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                     {/* Month Filter */}
                     <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5 rounded-2xl border border-slate-200 dark:border-slate-700">
                         <Clock className="size-4 text-slate-400" />
-                        <select 
+                        <BrandSelect 
                             value={selectedMonth} 
                             onChange={(e) => setSelectedMonth(e.target.value)}
                             className="bg-transparent text-sm font-medium text-slate-800 dark:text-slate-200 border-none outline-none focus:ring-0 cursor-pointer"
@@ -629,7 +631,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     {formatMonthLabel(m)}
                                 </option>
                             ))}
-                        </select>
+                        </BrandSelect>
                     </div>
 
                     <button
@@ -2146,7 +2148,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                                     Incentive Month (YYYY-MM)
                                 </label>
-                                <input
+                                <BrandDatePicker
                                     type="month"
                                     value={runForm.monthYear}
                                     onChange={(e) => handleRunMonthChange(e.target.value)}
@@ -2159,7 +2161,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                                         Period Start
                                     </label>
-                                    <input
+                                    <BrandDatePicker
                                         type="date"
                                         value={runForm.periodStart}
                                         onChange={(e) => setRunForm(prev => ({ ...prev, periodStart: e.target.value }))}
@@ -2170,7 +2172,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                                         Period End
                                     </label>
-                                    <input
+                                    <BrandDatePicker
                                         type="date"
                                         value={runForm.periodEnd}
                                         onChange={(e) => setRunForm(prev => ({ ...prev, periodEnd: e.target.value }))}
@@ -2183,7 +2185,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-1">
                                     Incentive Plan
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={runForm.planId}
                                     onChange={(e) => setRunForm(prev => ({ ...prev, planId: e.target.value }))}
                                     className="w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
@@ -2193,7 +2195,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                             {p.name} (v{p.version} · {p.maximum_booking_percentage}% Cap · {p.gp_protection_percentage}% GP)
                                         </option>
                                     ))}
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1 text-xs text-slate-500">
@@ -2404,7 +2406,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 <label className="block text-xs font-semibold text-slate-500 mb-1">
                                     Employee <span className="text-rose-500">*</span>
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={adjForm.employeeId}
                                     onChange={(e) => setAdjForm(prev => ({ ...prev, employeeId: parseInt(e.target.value) || 0 }))}
                                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
@@ -2415,14 +2417,14 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                             {s.name} ({s.department || 'General'} · {s.role || 'Staff'})
                                         </option>
                                     ))}
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
                                 <label className="block text-xs font-semibold text-slate-500 mb-1">
                                     Adjustment Type <span className="text-rose-500">*</span>
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={adjForm.adjustmentType}
                                     onChange={(e) => setAdjForm(prev => ({ ...prev, adjustmentType: e.target.value }))}
                                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
@@ -2431,7 +2433,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     <option value="DEDUCTION">DEDUCTION (Policy penalty)</option>
                                     <option value="REVERSAL">REVERSAL / CLAWBACK (Customer refund reversal)</option>
                                     <option value="CORRECTION">CORRECTION (Financial adjustment)</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
@@ -2452,7 +2454,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                 <label className="block text-xs font-semibold text-slate-500 mb-1">
                                     Target Incentive Run (Optional)
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={adjForm.incentiveRunId}
                                     onChange={(e) => setAdjForm(prev => ({ ...prev, incentiveRunId: e.target.value }))}
                                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
@@ -2463,7 +2465,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                             {r.run_number} ({r.month_year})
                                         </option>
                                     ))}
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
@@ -2527,7 +2529,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                         <div className="space-y-3">
                             <div>
                                 <label className="block text-xs font-semibold text-slate-500 mb-1">Payment Method</label>
-                                <select
+                                <BrandSelect
                                     value={payoutForm.paymentMethod}
                                     onChange={(e) => setPayoutForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
                                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer"
@@ -2536,7 +2538,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                                     <option value="UPI">UPI</option>
                                     <option value="Cheque">Cheque</option>
                                     <option value="Cash">Cash</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>
@@ -2552,7 +2554,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
 
                             <div>
                                 <label className="block text-xs font-semibold text-slate-500 mb-1">Payment Date</label>
-                                <input
+                                <BrandDatePicker
                                     type="date"
                                     value={payoutForm.paymentDate}
                                     onChange={(e) => setPayoutForm(prev => ({ ...prev, paymentDate: e.target.value }))}

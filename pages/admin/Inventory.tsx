@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { DailySlot, Booking, BookingStatus } from '../../types';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -120,8 +122,15 @@ export const Inventory: React.FC = () => {
     const handleToggleBlock = useCallback(async (ds: string, block: boolean) => {
         if (isPast(ds)) return;
         const trips = bookingsByDate[ds] || [];
-        if (block && trips.length > 0 &&
-            !window.confirm(`${trips.length} active trip(s) on this date. Block new bookings anyway?`)) return;
+        if (block && trips.length > 0) {
+            const ok = await confirmAction({
+                title: 'Block Date with Active Trips',
+                message: `${trips.length} active trip(s) on this date. Block new bookings anyway?`,
+                confirmLabel: 'Block Anyway',
+                tone: 'warning',
+            });
+            if (!ok) return;
+        }
 
         setIsSaving(true);
         try {
@@ -185,20 +194,20 @@ export const Inventory: React.FC = () => {
                             <button onClick={() => changeMonth(-1)} className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 transition-colors">
                                 <span className="material-symbols-outlined text-[18px] text-slate-600 dark:text-slate-300">chevron_left</span>
                             </button>
-                            <select
+                            <BrandSelect
                                 value={month}
                                 onChange={e => { setActiveDay(null); setViewDate(new Date(year, +e.target.value, 1)); }}
                                 className="bg-transparent text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer px-1"
                             >
                                 {MONTH_FULL.map((m, i) => <option key={m} value={i}>{m}</option>)}
-                            </select>
-                            <select
+                            </BrandSelect>
+                            <BrandSelect
                                 value={year}
                                 onChange={e => { setActiveDay(null); setViewDate(new Date(+e.target.value, month, 1)); }}
                                 className="bg-transparent text-sm font-bold text-slate-900 dark:text-white focus:outline-none cursor-pointer px-1 border-l border-slate-200 dark:border-slate-700"
                             >
                                 {[-2,-1,0,1,2].map(d => year + d).map(y => <option key={y} value={y}>{y}</option>)}
-                            </select>
+                            </BrandSelect>
                             <button onClick={() => changeMonth(1)} className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 transition-colors">
                                 <span className="material-symbols-outlined text-[18px] text-slate-600 dark:text-slate-300">chevron_right</span>
                             </button>
@@ -607,7 +616,7 @@ const BookingCard: React.FC<BookingCardProps> = ({ booking: b, packages, staff, 
                 </div>
 
                 {/* Status Selector */}
-                <select
+                <BrandSelect
                     value={b.status}
                     onChange={e => onStatusChange(b.id, e.target.value as BookingStatus)}
                     className={`text-[10px] font-bold px-2 py-1 rounded-lg border cursor-pointer focus:outline-none ${sc.bg} ${sc.color} border-current/20`}
@@ -616,7 +625,7 @@ const BookingCard: React.FC<BookingCardProps> = ({ booking: b, packages, staff, 
                     <option value="Pending">Pending</option>
                     <option value="Completed">Completed</option>
                     <option value="Cancelled">Cancelled</option>
-                </select>
+                </BrandSelect>
             </div>
 
             {/* Card Body */}
@@ -648,7 +657,7 @@ const BookingCard: React.FC<BookingCardProps> = ({ booking: b, packages, staff, 
                 {/* Driver Assignment */}
                 <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-500 shrink-0">Driver:</span>
-                    <select
+                    <BrandSelect
                         value={b.assignedTo ? String(b.assignedTo) : ''}
                         onChange={e => onDriverChange(b.id, e.target.value)}
                         className={`flex-1 text-[10px] font-semibold py-1 px-2 rounded-lg border focus:outline-none cursor-pointer ${!b.assignedTo ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300' : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'}`}
@@ -657,7 +666,7 @@ const BookingCard: React.FC<BookingCardProps> = ({ booking: b, packages, staff, 
                         {staff.map(s => (
                             <option key={s.id} value={s.id}>{s.name}{s.role ? ` · ${s.role}` : ''}</option>
                         ))}
-                    </select>
+                    </BrandSelect>
                 </div>
             </div>
 

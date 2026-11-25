@@ -6,6 +6,7 @@ import { api } from '../src/lib/api';
 import { toast } from 'sonner';
 import { Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Line } from 'recharts';
 import { formatPrice, formatPriceCompact } from '../utils/packageUtils';
+import BrandSelect from '../components/ui/BrandSelect';
 
 // Timezone-safe local date parser
 const parseLocalDate = (dateStr?: string): Date | null => {
@@ -1625,14 +1626,14 @@ export const AdminDashboard: React.FC = () => {
                                     </button>
                                 </div>
 
-                                <select
+                                <BrandSelect
                                     value={selectedYear}
                                     onChange={(e) => setSelectedYear(e.target.value)}
                                     className="bg-slate-100 dark:bg-slate-800 border-none text-xs font-bold rounded-xl px-2.5 py-1.5 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
                                 >
                                     <option value="This Year">This Year ({new Date().getFullYear()})</option>
                                     <option value="Last Year">Last Year ({new Date().getFullYear() - 1})</option>
-                                </select>
+                                </BrandSelect>
 
                                 <button
                                     onClick={handleExportRevenueCSV}
@@ -1904,7 +1905,7 @@ export const AdminDashboard: React.FC = () => {
                                     </button>
                                 </div>
 
-                                <select
+                                <BrandSelect
                                     value={duesHorizon}
                                     onChange={(e) => setDuesHorizon(e.target.value as any)}
                                     className="bg-slate-100 dark:bg-slate-800 border-none text-xs font-bold rounded-xl px-2.5 py-1.5 text-slate-700 dark:text-slate-300 cursor-pointer outline-none"
@@ -1912,7 +1913,7 @@ export const AdminDashboard: React.FC = () => {
                                     <option value="7d">Due within 7 Days</option>
                                     <option value="all">All Pending Dates</option>
                                     <option value="overdue">Overdue Only ({unifiedDues.overdueCount})</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                         </div>
 
@@ -2161,7 +2162,7 @@ export const AdminDashboard: React.FC = () => {
                                 <span className="material-symbols-outlined text-amber-500 text-[18px]">emoji_events</span>
                                 <span>Top Sales Performers</span>
                             </h4>
-                            <select
+                            <BrandSelect
                                 value={salesTimeFilter}
                                 onChange={(e) => setSalesTimeFilter(e.target.value as any)}
                                 className="bg-slate-100 dark:bg-slate-800 border-none text-[10px] font-bold rounded-lg px-2 py-1 text-slate-600 dark:text-slate-300 cursor-pointer outline-none"
@@ -2169,7 +2170,7 @@ export const AdminDashboard: React.FC = () => {
                                 <option value="7">7 Days</option>
                                 <option value="14">14 Days</option>
                                 <option value="30">30 Days</option>
-                            </select>
+                            </BrandSelect>
                         </div>
 
                         <div className="space-y-2">

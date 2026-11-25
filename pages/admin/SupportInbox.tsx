@@ -3,6 +3,7 @@ import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 const safeFormatDate = (dateVal: any, fmtStr: string = 'MMM dd, yyyy', fallback: string = 'N/A'): string => {
   if (!dateVal) return fallback;
@@ -441,7 +442,7 @@ export const SupportInbox: React.FC = () => {
         {/* Header */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="font-display font-black text-slate-800 dark:text-white text-base">Support Inbox</h3>
+            <h1 className="font-display font-black text-slate-800 dark:text-white text-base">Support Inbox</h1>
             <span className="bg-primary/10 text-primary text-[10px] font-black px-2 py-0.5 rounded-full">
               {conversations.filter(c => c.status === 'Open').length} Open
             </span>
@@ -638,45 +639,45 @@ export const SupportInbox: React.FC = () => {
                 <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 shrink-0">
                   <span className="material-symbols-outlined text-[15px] text-slate-400">airplane_ticket</span>
                   <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Booking:</span>
-                  <select
+                  <BrandSelect
                     value={selectedConversation?.booking_id ?? ''}
                     onChange={e => updateTicket({ booking_id: e.target.value || null } as any)}
-                    className="h-7 pl-2 pr-6 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20 max-w-[130px]"
+                    className="h-7 px-2 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20 max-w-[150px]"
                   >
                     <option value="">No Booking Linked</option>
                     {customerBookings.map(b => (
                       <option key={b.id} value={b.id}>Link: {(b as any).package_name || (b as any).title || b.id.substring(0, 8)}</option>
                     ))}
-                  </select>
+                  </BrandSelect>
                 </div>
 
                 {/* Assign staff */}
                 <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 shrink-0">
                   <span className="material-symbols-outlined text-[15px] text-slate-400">support_agent</span>
                   <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Assignee:</span>
-                  <select
+                  <BrandSelect
                     value={selectedConversation?.assigned_staff_id ?? ''}
                     onChange={e => updateTicket({ assigned_staff_id: e.target.value || null } as any)}
-                    className="h-7 pl-2 pr-6 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20"
+                    className="h-7 px-2 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20"
                   >
                     <option value="">Unassigned</option>
                     {staff.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
-                  </select>
+                  </BrandSelect>
                 </div>
 
                 {/* Priority */}
                 <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 shrink-0">
                   <span className="material-symbols-outlined text-[15px] text-slate-400">flag</span>
                   <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">Priority:</span>
-                  <select
+                  <BrandSelect
                     value={selectedConversation?.priority ?? 'Medium'}
                     onChange={e => updateTicket({ priority: e.target.value as any })}
-                    className="h-7 pl-2 pr-6 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20"
+                    className="h-7 px-2 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 cursor-pointer focus:ring-1 focus:ring-primary/20"
                   >
                     <option value="Low">Low Priority</option>
                     <option value="Medium">Medium Priority</option>
                     <option value="High">High Priority</option>
-                  </select>
+                  </BrandSelect>
                 </div>
               </div>
             </div>
@@ -823,15 +824,15 @@ export const SupportInbox: React.FC = () => {
           <div className="p-5 space-y-4">
             <div className="flex justify-between items-center">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Customer Profile</h4>
-              <select
+              <BrandSelect
                 value={selectedConversation.sentiment ?? 'Neutral'}
                 onChange={e => updateTicket({ sentiment: e.target.value as any })}
-                className={`text-[9px] font-black uppercase pl-2 pr-6 py-0.5 rounded-full border cursor-pointer ${getSentimentStyle(selectedConversation.sentiment).bg}`}
+                className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border cursor-pointer ${getSentimentStyle(selectedConversation.sentiment).bg}`}
               >
                 <option value="Neutral">😐 Neutral</option>
                 <option value="Positive">😊 Positive</option>
                 <option value="Frustrated">😠 Frustrated</option>
-              </select>
+              </BrandSelect>
             </div>
 
             <div className="flex items-center gap-3">
@@ -1011,15 +1012,15 @@ export const SupportInbox: React.FC = () => {
             <div className="p-5 space-y-4">
               <div className="flex justify-between items-center">
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Customer Profile</h4>
-                <select
+                <BrandSelect
                   value={selectedConversation.sentiment ?? 'Neutral'}
                   onChange={e => updateTicket({ sentiment: e.target.value as any })}
-                  className={`text-[9px] font-black uppercase pl-2 pr-6 py-0.5 rounded-full border cursor-pointer ${getSentimentStyle(selectedConversation.sentiment).bg}`}
+                  className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border cursor-pointer ${getSentimentStyle(selectedConversation.sentiment).bg}`}
                 >
                   <option value="Neutral">😐 Neutral</option>
                   <option value="Positive">😊 Positive</option>
                   <option value="Frustrated">😠 Frustrated</option>
-                </select>
+                </BrandSelect>
               </div>
 
               <div className="flex items-center gap-3">

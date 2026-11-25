@@ -9,6 +9,7 @@ import {
     Plane, UserPlus, Hotel, Briefcase, Store, Users, Key, Tag, Trash2
 } from 'lucide-react';
 import { AuditLog } from '../../types';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 export const ActivityLogs: React.FC = () => {
     const navigate = useNavigate();
@@ -574,10 +575,10 @@ export const ActivityLogs: React.FC = () => {
                     <div className="flex flex-wrap sm:flex-nowrap gap-3">
                         {/* Staff */}
                         <div className="relative flex-1 sm:flex-initial min-w-[150px]">
-                            <select
+                            <BrandSelect
                                 value={selectedStaff}
                                 onChange={(e) => { setSelectedStaff(e.target.value); setCurrentPage(1); }}
-                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 py-3 pl-4 pr-10 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                                className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 py-3 px-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                             >
                                 <option value="All">All Creators</option>
                                 {uniqueStaffEmails.filter(e => e !== 'All').map(email => (
@@ -585,37 +586,34 @@ export const ActivityLogs: React.FC = () => {
                                         {getStaffDetails(email).name}
                                     </option>
                                 ))}
-                            </select>
-                            <Filter className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                            </BrandSelect>
                         </div>
 
                         {/* Module */}
                         <div className="relative flex-1 sm:flex-initial min-w-[150px]">
-                            <select
+                            <BrandSelect
                                 value={selectedModule}
                                 onChange={(e) => { setSelectedModule(e.target.value); setCurrentPage(1); }}
-                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 py-3 pl-4 pr-10 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                                className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 py-3 px-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                             >
                                 <option value="All">All Modules</option>
                                 {uniqueModules.filter(m => m !== 'All').map(mod => (
                                     <option key={mod} value={mod}>{mod}</option>
                                 ))}
-                            </select>
-                            <Filter className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                            </BrandSelect>
                         </div>
 
                         {/* Action */}
                         <div className="relative flex-1 sm:flex-initial min-w-[150px]">
-                            <select
+                            <BrandSelect
                                 value={selectedAction}
                                 onChange={(e) => { setSelectedAction(e.target.value); setCurrentPage(1); }}
-                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 py-3 pl-4 pr-10 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                                className="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 py-3 px-4 rounded-2xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                             >
                                 {uniqueActions.map(act => (
                                     <option key={act} value={act}>{act} Actions</option>
                                 ))}
-                            </select>
-                            <Filter className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                            </BrandSelect>
                         </div>
                     </div>
                 </div>
@@ -635,12 +633,27 @@ export const ActivityLogs: React.FC = () => {
                                     {/* Left: Avatar + User details */}
                                     <div className="flex items-start gap-4">
                                         {/* Colored Avatar with overlapping module icon */}
-                                        <div className={`size-11 shrink-0 rounded-2xl bg-gradient-to-br from-${staffInfo.color}-400 to-${staffInfo.color}-600 dark:from-${staffInfo.color}-500 dark:to-${staffInfo.color}-700 text-white font-bold text-sm shadow-md flex items-center justify-center uppercase relative`}>
-                                            {staffInfo.initials}
-                                            <div className="absolute -bottom-1.5 -right-1.5 size-5 rounded-full bg-white dark:bg-[#111A2E] shadow-sm flex items-center justify-center border border-slate-100 dark:border-slate-800">
-                                                <resolved.iconComponent size={11} className={resolved.color} />
-                                            </div>
-                                        </div>
+                                        {(() => {
+                                            const AVATAR_GRADIENTS: Record<string, string> = {
+                                                indigo: 'from-indigo-400 to-indigo-600 dark:from-indigo-500 dark:to-indigo-700',
+                                                emerald: 'from-emerald-400 to-emerald-600 dark:from-emerald-500 dark:to-emerald-700',
+                                                amber: 'from-amber-400 to-amber-600 dark:from-amber-500 dark:to-amber-700',
+                                                rose: 'from-rose-400 to-rose-600 dark:from-rose-500 dark:to-rose-700',
+                                                purple: 'from-purple-400 to-purple-600 dark:from-purple-500 dark:to-purple-700',
+                                                blue: 'from-blue-400 to-blue-600 dark:from-blue-500 dark:to-blue-700',
+                                                teal: 'from-teal-400 to-teal-600 dark:from-teal-500 dark:to-teal-700',
+                                                slate: 'from-slate-400 to-slate-600 dark:from-slate-500 dark:to-slate-700',
+                                            };
+                                            const gradientCls = AVATAR_GRADIENTS[staffInfo.color] || AVATAR_GRADIENTS.indigo;
+                                            return (
+                                                <div className={`size-11 shrink-0 rounded-2xl bg-gradient-to-br ${gradientCls} text-white font-bold text-sm shadow-md flex items-center justify-center uppercase relative`}>
+                                                    {staffInfo.initials}
+                                                    <div className="absolute -bottom-1.5 -right-1.5 size-5 rounded-full bg-white dark:bg-[#111A2E] shadow-sm flex items-center justify-center border border-slate-100 dark:border-slate-800">
+                                                        <resolved.iconComponent size={11} className={resolved.color} />
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
 
                                         {/* User activity line */}
                                         <div className="space-y-1">

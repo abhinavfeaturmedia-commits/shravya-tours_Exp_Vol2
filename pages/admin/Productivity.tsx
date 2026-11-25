@@ -3,6 +3,9 @@ import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { Task, TaskStatus, TaskPriority, StaffMember, Lead, Booking } from '../../types';
 import { toast } from 'sonner';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 import {
     CheckCircle2, Clock, AlertTriangle, AlertCircle, TrendingUp,
     Users, Plus, Calendar, Search, Filter, MoreHorizontal, Edit2,
@@ -401,8 +404,14 @@ export const Productivity: React.FC = () => {
         toast.success(`Task status: ${status}`);
     };
 
-    const handleDeleteTask = (taskId: string) => {
-        if (window.confirm('Delete this task?')) {
+    const handleDeleteTask = async (taskId: string) => {
+        const ok = await confirmAction({
+            title: 'Delete Task',
+            message: 'Delete this task?',
+            confirmLabel: 'Delete',
+            tone: 'danger',
+        });
+        if (ok) {
             deleteTask(taskId);
             toast.success('Task removed');
         }
@@ -545,9 +554,15 @@ export const Productivity: React.FC = () => {
         setSelectedTasks([]);
     };
 
-    const handleBulkDelete = () => {
+    const handleBulkDelete = async () => {
         if (!selectedTasks.length) return;
-        if (window.confirm(`Delete ${selectedTasks.length} selected tasks?`)) {
+        const ok = await confirmAction({
+            title: 'Delete Selected Tasks',
+            message: `Delete ${selectedTasks.length} selected tasks?`,
+            confirmLabel: 'Delete All',
+            tone: 'danger',
+        });
+        if (ok) {
             selectedTasks.forEach(id => deleteTask(id));
             toast.success(`Deleted ${selectedTasks.length} tasks`);
             setSelectedTasks([]);
@@ -908,7 +923,7 @@ export const Productivity: React.FC = () => {
 
                         {/* View Mode Toggle & Priority */}
                         <div className="flex items-center gap-2">
-                            <select
+                            <BrandSelect
                                 value={priorityFilter}
                                 onChange={e => setPriorityFilter(e.target.value as any)}
                                 aria-label="Filter by priority"
@@ -919,7 +934,7 @@ export const Productivity: React.FC = () => {
                                 <option value="High">High</option>
                                 <option value="Medium">Medium</option>
                                 <option value="Low">Low</option>
-                            </select>
+                            </BrandSelect>
 
                             <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/60">
                                 <button
@@ -1106,7 +1121,7 @@ export const Productivity: React.FC = () => {
 
                                                     {/* Status Dropdown */}
                                                     <td className="py-3 px-3">
-                                                        <select
+                                                        <BrandSelect
                                                             value={task.status}
                                                             onChange={e => handleUpdateStatus(task.id, e.target.value as TaskStatus)}
                                                             aria-label="Update status"
@@ -1115,7 +1130,7 @@ export const Productivity: React.FC = () => {
                                                             <option value="Pending">Pending</option>
                                                             <option value="In Progress">In Progress</option>
                                                             <option value="Completed">Completed</option>
-                                                        </select>
+                                                        </BrandSelect>
                                                     </td>
 
                                                     {/* Due Date */}
@@ -1496,7 +1511,7 @@ export const Productivity: React.FC = () => {
                                     <label className="block font-semibold text-slate-700 mb-1">
                                         Assign To *
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         required
                                         value={taskForm.assignedTo}
                                         onChange={e => setTaskForm({ ...taskForm, assignedTo: Number(e.target.value) })}
@@ -1508,14 +1523,14 @@ export const Productivity: React.FC = () => {
                                                 {s.name} ({s.role})
                                             </option>
                                         ))}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
 
                                 <div>
                                     <label className="block font-semibold text-slate-700 mb-1">
                                         Category
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         value={taskForm.category}
                                         onChange={e => setTaskForm({ ...taskForm, category: e.target.value })}
                                         className="w-full h-10 px-3 rounded-xl border border-slate-200 text-xs font-medium bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
@@ -1527,7 +1542,7 @@ export const Productivity: React.FC = () => {
                                         <option value="Finance & Billing">Finance & Billing</option>
                                         <option value="Ticketing">Ticketing</option>
                                         <option value="Customer Care">Customer Care</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
 
@@ -1597,7 +1612,7 @@ export const Productivity: React.FC = () => {
                                         </button>
                                     </div>
                                 </div>
-                                <input
+                                <BrandDatePicker
                                     type="date"
                                     required
                                     value={taskForm.dueDate}
@@ -2152,7 +2167,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
                 )}
 
                 <div className="flex items-center gap-1.5">
-                    <select
+                    <BrandSelect
                         value={task.status}
                         onChange={e => onUpdateStatus(e.target.value as TaskStatus)}
                         aria-label="Change status"
@@ -2161,7 +2176,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
                         <option value="Pending">Pending</option>
                         <option value="In Progress">In Progress</option>
                         <option value="Completed">Completed</option>
-                    </select>
+                    </BrandSelect>
 
                     <div
                         title={`Assigned to: ${staffMember?.name || 'Unassigned'}`}

@@ -6,6 +6,9 @@ import { useData } from '../../context/DataContext';
 import { formatPrice } from '../../utils/packageUtils';
 import { toast } from 'sonner';
 import { api } from '../../src/lib/api';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 export const InboxApprovalsHub: React.FC = () => {
   const navigate = useNavigate();
@@ -354,7 +357,13 @@ export const InboxApprovalsHub: React.FC = () => {
 
   const handleBatchApprove = async () => {
     if (selectedIds.length === 0) return;
-    if (!confirm(`Are you sure you want to approve ${selectedIds.length} selected request(s)?`)) return;
+    const ok = await confirmAction({
+      title: 'Batch Approve Requests',
+      message: `Are you sure you want to approve ${selectedIds.length} selected request(s)?`,
+      confirmLabel: 'Approve All',
+      tone: 'primary',
+    });
+    if (!ok) return;
 
     setIsProcessing(true);
     try {
@@ -1135,7 +1144,7 @@ export const InboxApprovalsHub: React.FC = () => {
 
                       {/* Quick picker from Master Transports / Vendors */}
                       {(transportVendors.length > 0 || (masterTransports && masterTransports.length > 0)) && (
-                        <select
+                        <BrandSelect
                           onChange={e => handleQuickSelectTransport(e.target.value)}
                           className="text-[11px] font-bold px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-700 text-slate-700 dark:text-slate-300 cursor-pointer"
                         >
@@ -1146,7 +1155,7 @@ export const InboxApprovalsHub: React.FC = () => {
                           {(masterTransports || []).map(t => (
                             <option key={t.id} value={t.id}>{t.name} ({t.type})</option>
                           ))}
-                        </select>
+                        </BrandSelect>
                       )}
                     </div>
 
@@ -1451,7 +1460,7 @@ export const InboxApprovalsHub: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Priority</label>
-                  <select
+                  <BrandSelect
                     value={newTaskForm.priority}
                     onChange={e => setNewTaskForm({ ...newTaskForm, priority: e.target.value })}
                     className="w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium cursor-pointer"
@@ -1460,12 +1469,12 @@ export const InboxApprovalsHub: React.FC = () => {
                     <option value="High">High</option>
                     <option value="Medium">Medium</option>
                     <option value="Low">Low</option>
-                  </select>
+                  </BrandSelect>
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Due Date</label>
-                  <input
+                  <BrandDatePicker
                     type="date"
                     value={newTaskForm.dueDate}
                     onChange={e => setNewTaskForm({ ...newTaskForm, dueDate: e.target.value })}
@@ -1524,7 +1533,7 @@ export const InboxApprovalsHub: React.FC = () => {
             <form onSubmit={handleSubmitGrievance} className="flex flex-col gap-3">
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Escalation Category</label>
-                <select
+                <BrandSelect
                   value={grievanceForm.category}
                   onChange={e => setGrievanceForm({ ...grievanceForm, category: e.target.value })}
                   className="w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium cursor-pointer"
@@ -1535,7 +1544,7 @@ export const InboxApprovalsHub: React.FC = () => {
                   <option value="Compensation">Compensation / Incentive Discrepancy</option>
                   <option value="Work Environment">Work Environment / Ethics Issue</option>
                   <option value="Other">Other Confidential Matter</option>
-                </select>
+                </BrandSelect>
               </div>
 
               <div>

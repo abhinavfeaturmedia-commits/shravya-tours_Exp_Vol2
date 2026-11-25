@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 
@@ -173,12 +173,16 @@ export const Login: React.FC = () => {
                     <form onSubmit={handleSubmit} className="space-y-6">
                         {/* Email */}
                         <div className="space-y-2">
-                            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                            <label htmlFor="login-email" className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
                                 Email Address
                             </label>
                             <input
                                 id="login-email"
+                                name="email"
                                 type="email"
+                                autoComplete="username"
+                                spellCheck={false}
+                                enterKeyHint="next"
                                 required
                                 value={email}
                                 onChange={e => setEmail(e.target.value)}
@@ -189,13 +193,16 @@ export const Login: React.FC = () => {
 
                         {/* Password */}
                         <div className="space-y-2">
-                            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                            <label htmlFor="login-password" className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-widest">
                                 Password
                             </label>
                             <div className="relative">
                                 <input
                                     id="login-password"
+                                    name="password"
                                     type={showPassword ? "text" : "password"}
+                                    autoComplete="current-password"
+                                    enterKeyHint="done"
                                     required
                                     value={password}
                                     onChange={e => setPassword(e.target.value)}
@@ -204,10 +211,11 @@ export const Login: React.FC = () => {
                                 />
                                 <button
                                     type="button"
+                                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                                     onClick={() => setShowPassword(!showPassword)}
                                     className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 focus:outline-none flex items-center justify-center transition-colors"
                                 >
-                                    <span className="material-symbols-outlined text-[20px]">
+                                    <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
                                         {showPassword ? 'visibility_off' : 'visibility'}
                                     </span>
                                 </button>
@@ -305,19 +313,19 @@ export const Login: React.FC = () => {
                                 <span className="material-symbols-outlined text-lg">arrow_back</span>
                                 Back to Homepage
                             </a>
-                            <a
-                                href="#/partner/login"
+                            <Link
+                                to="/partner/login"
                                 className="text-slate-400 hover:text-violet-500 text-xs font-medium flex items-center gap-2 transition-colors mt-2"
                             >
                                 Travel Associate Portal →
-                            </a>
+                            </Link>
                         </div>
                     </form>
                 </div>
 
                 {/* Bottom watermark */}
                 <p className="absolute bottom-6 left-0 right-0 text-center text-[10px] text-slate-300 dark:text-slate-700 tracking-widest uppercase font-light">
-                    © 2025 SHRAWELLO Travel Hub · All rights reserved
+                    © {new Date().getFullYear()} SHRAWELLO Travel Hub · All rights reserved
                 </p>
             </div>
         </div>

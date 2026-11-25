@@ -11,6 +11,9 @@ import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { HotelAvailabilityModal } from '../../components/admin/HotelAvailabilityModal';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 
 // Internal Toast Component
@@ -507,7 +510,7 @@ export const Vendors: React.FC = () => {
         }
     };
 
-    const handleBulkAction = (action: 'delete' | 'deactivate' | 'email') => {
+    const handleBulkAction = async (action: 'delete' | 'deactivate' | 'email') => {
         if (selectedIds.size === 0) return;
 
         if (action === 'email') {
@@ -516,13 +519,15 @@ export const Vendors: React.FC = () => {
         }
 
         if (action === 'delete') {
-            if (confirm(`Are you sure you want to permanently delete ${selectedIds.size} vendors?`)) {
+            const ok = await confirmAction({ title: 'Delete Vendors', message: `Are you sure you want to permanently delete ${selectedIds.size} vendors?`, confirmLabel: 'Delete All', tone: 'danger' });
+            if (ok) {
                 selectedIds.forEach(id => deleteVendor(id));
                 setSelectedIds(new Set());
                 showToast(`${selectedIds.size} vendors deleted.`);
             }
         } else if (action === 'deactivate') {
-            if (confirm(`Mark ${selectedIds.size} vendors as Inactive?`)) {
+            const ok = await confirmAction({ title: 'Deactivate Vendors', message: `Mark ${selectedIds.size} vendors as Inactive?`, confirmLabel: 'Mark Inactive', tone: 'warning' });
+            if (ok) {
                 selectedIds.forEach(id => updateVendor(id, { contractStatus: 'Blacklisted' }));
                 setSelectedIds(new Set());
                 showToast(`${selectedIds.size} vendors deactivated.`);
@@ -687,9 +692,10 @@ export const Vendors: React.FC = () => {
         updateVendor(selectedVendor.id, { services: updatedServices as VendorService[] });
     };
 
-    const handleDeleteService = (serviceId: string) => {
+    const handleDeleteService = async (serviceId: string) => {
         if (!selectedVendor) return;
-        if (confirm('Remove this service?')) {
+        const ok = await confirmAction({ title: 'Remove Service', message: 'Remove this service?', confirmLabel: 'Remove', tone: 'danger' });
+        if (ok) {
             const updatedServices = vendorServices.filter(s => s.id !== serviceId);
             updateVendor(selectedVendor.id, { services: updatedServices });
             showToast('Service removed.');
@@ -818,9 +824,10 @@ export const Vendors: React.FC = () => {
         showToast('Note updated');
     };
 
-    const handleDeleteNote = (noteId: string) => {
+    const handleDeleteNote = async (noteId: string) => {
         if (!selectedVendor) return;
-        if (!confirm('Are you sure you want to delete this note?')) return;
+        const ok = await confirmAction({ title: 'Delete Note', message: 'Are you sure you want to delete this note?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         const updatedNotes = vendorNotes.filter(note => note.id !== noteId);
         updateVendor(selectedVendor.id, { notes: updatedNotes });
         showToast('Note deleted');
@@ -1397,7 +1404,7 @@ export const Vendors: React.FC = () => {
                                                                 <button onClick={() => handleOpenEdit(vendor)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors w-full text-left">
                                                                     <span className="material-symbols-outlined text-[18px] text-primary">edit</span> Edit Vendor
                                                                 </button>
-                                                                <button onClick={() => { if (confirm(`Delete ${vendor.name}?`)) { deleteVendor(vendor.id); setSelectedVendorId(null); } }} className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors w-full text-left">
+                                                                <button onClick={async () => { const ok = await confirmAction({ title: 'Delete Vendor', message: `Delete ${vendor.name}?`, confirmLabel: 'Delete', tone: 'danger' }); if (ok) { deleteVendor(vendor.id); setSelectedVendorId(null); } }} className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors w-full text-left">
                                                                     <span className="material-symbols-outlined text-[18px]">delete</span> Delete
                                                                 </button>
                                                             </ActionMenu>
@@ -1665,13 +1672,13 @@ export const Vendors: React.FC = () => {
                                                                 value={editServiceForm.name || ''}
                                                                 onChange={e => setEditServiceForm({ ...editServiceForm, name: e.target.value })}
                                                             />
-                                                            <select
+                                                            <BrandSelect
                                                                 className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
                                                                 value={editServiceForm.unit || 'Per Night'}
                                                                 onChange={e => setEditServiceForm({ ...editServiceForm, unit: e.target.value })}
                                                             >
                                                                 <option>Per Night</option><option>Per Trip</option><option>Per Guest</option><option>Per KM</option>
-                                                            </select>
+                                                            </BrandSelect>
                                                         </div>
                                                         <div className="grid grid-cols-3 gap-3">
                                                             <div>
@@ -1680,9 +1687,9 @@ export const Vendors: React.FC = () => {
                                                             </div>
                                                             <div>
                                                                 <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Markup Type</label>
-                                                                <select className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" value={editServiceForm.markupType || 'Percentage'} onChange={e => setEditServiceForm({ ...editServiceForm, markupType: e.target.value as any })}>
+                                                                <BrandSelect className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" value={editServiceForm.markupType || 'Percentage'} onChange={e => setEditServiceForm({ ...editServiceForm, markupType: e.target.value as any })}>
                                                                     <option value="Percentage">% Markup</option><option value="Fixed">₹ Markup</option>
-                                                                </select>
+                                                                </BrandSelect>
                                                             </div>
                                                             <div>
                                                                 <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Markup Value</label>
@@ -1757,15 +1764,15 @@ export const Vendors: React.FC = () => {
                                                 </h3>
                                                 <div className="grid grid-cols-2 gap-4 mb-4">
                                                     <input placeholder="Service Name" className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder:text-slate-600 focus:ring-1 focus:ring-primary outline-none" value={serviceForm.name} onChange={e => setServiceForm({ ...serviceForm, name: e.target.value })} />
-                                                    <select className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:ring-1 focus:ring-primary outline-none appearance-none" value={serviceForm.unit} onChange={e => setServiceForm({ ...serviceForm, unit: e.target.value })}>
-                                                        <option className="bg-slate-900">Per Night</option><option className="bg-slate-900">Per Trip</option><option className="bg-slate-900">Per Guest</option><option className="bg-slate-900">Per KM</option>
-                                                    </select>
+                                                    <BrandSelect tone="dark" className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white focus:ring-1 focus:ring-primary outline-none" value={serviceForm.unit} onChange={e => setServiceForm({ ...serviceForm, unit: e.target.value })}>
+                                                        <option>Per Night</option><option>Per Trip</option><option>Per Guest</option><option>Per KM</option>
+                                                    </BrandSelect>
                                                 </div>
                                                 <div className="grid grid-cols-3 gap-4 mb-6">
                                                     <input type="number" className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm font-black text-white" value={serviceForm.baseCost || ''} onChange={e => setServiceForm({ ...serviceForm, baseCost: parseFloat(e.target.value) || 0 })} placeholder={getCostPlaceholder(serviceForm.unit || 'Per Night')} />
-                                                    <select className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white" value={serviceForm.markupType} onChange={e => setServiceForm({ ...serviceForm, markupType: e.target.value as any })}>
-                                                        <option value="Percentage" className="bg-slate-900">% Markup</option><option value="Fixed" className="bg-slate-900">₹ Markup</option>
-                                                    </select>
+                                                    <BrandSelect tone="dark" className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white" value={serviceForm.markupType} onChange={e => setServiceForm({ ...serviceForm, markupType: e.target.value as any })}>
+                                                        <option value="Percentage">% Markup</option><option value="Fixed">₹ Markup</option>
+                                                    </BrandSelect>
                                                     <input type="number" className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm font-black text-white" value={serviceForm.markupValue} onChange={e => setServiceForm({ ...serviceForm, markupValue: parseFloat(e.target.value) || 0 })} />
                                                 </div>
 
@@ -1954,8 +1961,9 @@ export const Vendors: React.FC = () => {
                                                         </div>
                                                         <div className="flex gap-2">
                                                             <a href={doc.url !== '#' ? doc.url : undefined} target="_blank" rel="noopener noreferrer" download={doc.url.startsWith('data:') ? doc.name : undefined} className={`flex-1 py-2 text-center text-[10px] font-black uppercase rounded-lg transition-colors ${doc.url && doc.url !== '#' ? 'bg-slate-50 dark:bg-slate-800 hover:bg-primary hover:text-white cursor-pointer' : 'bg-slate-50 dark:bg-slate-800 text-slate-300 cursor-not-allowed'}`}>View</a>
-                                                            <button onClick={() => {
-                                                                if (confirm('Are you sure you want to delete this document? This action cannot be undone.')) {
+                                                            <button onClick={async () => {
+                                                                const ok = await confirmAction({ title: 'Delete Document', message: 'Are you sure you want to delete this document? This action cannot be undone.', confirmLabel: 'Delete', tone: 'danger' });
+                                                                if (ok) {
                                                                     deleteVendorDocument(selectedVendor.id, doc.id);
                                                                 }
                                                             }} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors"><span className="material-symbols-outlined text-[18px]">delete</span></button>
@@ -1993,7 +2001,7 @@ export const Vendors: React.FC = () => {
                                         <div className="p-8 rounded-[2rem] border border-red-200 dark:border-red-900/30 bg-red-50/50 dark:bg-red-950/10">
                                             <h4 className="text-sm font-black text-red-700 dark:text-red-400 mb-2 uppercase tracking-widest">Danger Zone</h4>
                                             <p className="text-xs text-slate-500 mb-6 leading-relaxed">Deleting this vendor will permanently erase all history, services, and outstanding balances. Ensure all payouts are settled first.</p>
-                                            <button onClick={() => { if (confirm('Are you absolutely sure? This cannot be undone.')) { deleteVendor(selectedVendor.id); setSelectedVendorId(null); showToast('Vendor deleted.'); } }} className="w-full py-4 bg-red-600 text-white text-xs font-black uppercase tracking-[0.2em] rounded-xl hover:bg-red-700 transition-all shadow-xl shadow-red-600/20 active:scale-[0.98]">Revoke Onboarding</button>
+                                            <button onClick={async () => { const ok = await confirmAction({ title: 'Revoke Vendor Onboarding', message: 'Are you absolutely sure? This cannot be undone.', confirmLabel: 'Revoke & Delete', tone: 'danger' }); if (ok) { deleteVendor(selectedVendor.id); setSelectedVendorId(null); showToast('Vendor deleted.'); } }} className="w-full py-4 bg-red-600 text-white text-xs font-black uppercase tracking-[0.2em] rounded-xl hover:bg-red-700 transition-all shadow-xl shadow-red-600/20 active:scale-[0.98]">Revoke Onboarding</button>
                                         </div>
                                     </div>
                                 )}
@@ -2029,18 +2037,18 @@ export const Vendors: React.FC = () => {
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Category</label>
-                                        <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.category} onChange={e => setVendorForm({ ...vendorForm, category: e.target.value as any, subCategory: undefined })}>
+                                        <BrandSelect className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.category} onChange={e => setVendorForm({ ...vendorForm, category: e.target.value as any, subCategory: undefined })}>
                                             <option>Hotel</option><option>Transport</option><option>DMC</option><option>Guide</option><option>Activity</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                 </div>
                                 {vendorForm.category === 'Transport' && (
                                     <div className="space-y-1 animate-in fade-in slide-in-from-top-2">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Transport Type</label>
-                                        <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.subCategory || ''} onChange={e => setVendorForm({ ...vendorForm, subCategory: e.target.value as any })}>
+                                        <BrandSelect className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.subCategory || ''} onChange={e => setVendorForm({ ...vendorForm, subCategory: e.target.value as any })}>
                                             <option value="" disabled>Select Type</option>
                                             <option>Flight</option><option>Bus</option><option>Taxi/Cab</option><option>Other</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                 )}
                                 <div className="space-y-1">
@@ -2073,15 +2081,15 @@ export const Vendors: React.FC = () => {
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Contract Status</label>
-                                        <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contractStatus || 'Active'} onChange={e => setVendorForm({ ...vendorForm, contractStatus: e.target.value as any })}>
+                                        <BrandSelect className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contractStatus || 'Active'} onChange={e => setVendorForm({ ...vendorForm, contractStatus: e.target.value as any })}>
                                             <option value="Active">Active</option>
                                             <option value="Inactive">Inactive</option>
                                             <option value="Blacklisted">Blacklisted</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">Contract Expiry</label>
-                                        <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contractExpiryDate || ''} onChange={e => setVendorForm({ ...vendorForm, contractExpiryDate: e.target.value })} />
+                                        <BrandDatePicker type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary" value={vendorForm.contractExpiryDate || ''} onChange={e => setVendorForm({ ...vendorForm, contractExpiryDate: e.target.value })} />
                                     </div>
                                 </div>
                             </div>
@@ -2201,13 +2209,13 @@ export const Vendors: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Document Type</label>
-                                    <select className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none" value={docForm.type} onChange={e => setDocForm({ ...docForm, type: e.target.value })}>
+                                    <BrandSelect className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none" value={docForm.type} onChange={e => setDocForm({ ...docForm, type: e.target.value })}>
                                         <option>Contract</option>
                                         <option>License</option>
                                         <option>ID</option>
                                         <option>Insurance</option>
                                         <option>Other</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
@@ -2216,7 +2224,7 @@ export const Vendors: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Expiry Date</label>
-                                        <input type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none" value={docForm.expiry} onChange={e => setDocForm({ ...docForm, expiry: e.target.value })} />
+                                        <BrandDatePicker type="date" className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none" value={docForm.expiry} onChange={e => setDocForm({ ...docForm, expiry: e.target.value })} />
                                     </div>
                                 </div>
                                 <div className="pt-2 flex justify-end gap-2">

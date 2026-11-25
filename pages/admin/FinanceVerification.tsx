@@ -6,6 +6,9 @@ import { useTransfers, TransferRequest } from '../../src/hooks/useTransfers';
 import { Pagination, usePagination } from '../../components/ui/Pagination';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { formatPrice } from '../../utils/packageUtils';
+import { toast } from 'sonner';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 export const FinanceVerification: React.FC = () => {
     const { transactions, isLoading: isPaymentsLoading, updateTransactionStatus } = useFinance();
@@ -75,7 +78,7 @@ export const FinanceVerification: React.FC = () => {
         const reason = prompt("Please enter the reason for rejecting this transfer:");
         if (reason === null) return; // User cancelled
         if (!reason.trim()) {
-            alert("A rejection reason is required.");
+            toast.error("A rejection reason is required.");
             return;
         }
         await rejectTransfer(id, reason);
@@ -182,7 +185,7 @@ export const FinanceVerification: React.FC = () => {
 
                     <div className="flex items-center gap-3 w-full lg:w-auto flex-wrap">
                         {viewMode === 'payments' && (
-                            <select
+                            <BrandSelect
                                 value={sourceFilter}
                                 onChange={(e) => {
                                     setSourceFilter(e.target.value as any);
@@ -195,7 +198,7 @@ export const FinanceVerification: React.FC = () => {
                                 <option value="expense">Corporate Expenses</option>
                                 <option value="vendor_payout">Vendor Payouts</option>
                                 <option value="partner_payout">Partner Payouts</option>
-                            </select>
+                            </BrandSelect>
                         )}
                         <div className="relative flex-1 lg:w-64 min-w-[200px]">
                             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[18px] pointer-events-none">search</span>
@@ -380,13 +383,19 @@ export const FinanceVerification: React.FC = () => {
                                                         {(hasPermission('finance_verification', 'manage') || hasPermission('finance', 'manage')) && tx.status === 'Pending' && (
                                                             <>
                                                                 <button 
-                                                                    onClick={() => {
+                                                                    onClick={async () => {
                                                                         const entityName = 
                                                                             tx.source === 'expense' ? 'expense' :
                                                                             tx.source === 'vendor_payout' ? 'vendor payout' :
                                                                             tx.source === 'partner_payout' ? 'partner commission payout' :
                                                                             'booking payment';
-                                                                        if(confirm(`Are you sure you want to verify this ${entityName}? This will perform account balance adjustments and ledger updates.`)) {
+                                                                        const ok = await confirmAction({
+                                                                            title: `Verify ${entityName}`,
+                                                                            message: `Are you sure you want to verify this ${entityName}? This will perform account balance adjustments and ledger updates.`,
+                                                                            confirmLabel: 'Verify',
+                                                                            tone: 'primary',
+                                                                        });
+                                                                        if (ok) {
                                                                             updateTransactionStatus(tx.id, 'Verified');
                                                                         }
                                                                     }}
@@ -397,8 +406,14 @@ export const FinanceVerification: React.FC = () => {
                                                                     Verify
                                                                 </button>
                                                                 <button 
-                                                                    onClick={() => {
-                                                                        if(confirm('Reject this payment transaction? This will mark it as invalid.')) {
+                                                                    onClick={async () => {
+                                                                        const ok = await confirmAction({
+                                                                            title: 'Reject Payment',
+                                                                            message: 'Reject this payment transaction? This will mark it as invalid.',
+                                                                            confirmLabel: 'Reject',
+                                                                            tone: 'danger',
+                                                                        });
+                                                                        if (ok) {
                                                                             updateTransactionStatus(tx.id, 'Rejected');
                                                                         }
                                                                     }}
@@ -510,8 +525,14 @@ export const FinanceVerification: React.FC = () => {
                                                         {tr.status === 'Pending' ? (
                                                             <>
                                                                 <button 
-                                                                    onClick={() => {
-                                                                        if(confirm('Are you sure you want to approve this ownership transfer? Ownership will swap immediately.')) {
+                                                                    onClick={async () => {
+                                                                        const ok = await confirmAction({
+                                                                            title: 'Approve Ownership Transfer',
+                                                                            message: 'Are you sure you want to approve this ownership transfer? Ownership will swap immediately.',
+                                                                            confirmLabel: 'Approve Transfer',
+                                                                            tone: 'warning',
+                                                                        });
+                                                                        if (ok) {
                                                                             approveTransfer(tr.id);
                                                                         }
                                                                     }}

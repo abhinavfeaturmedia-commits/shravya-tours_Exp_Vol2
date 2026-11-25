@@ -49,12 +49,12 @@ export const DigitalCard: React.FC = () => {
   const [cardFlip, setCardFlip] = useState(false);
 
   // Dynamic Current URL for the digital card
-  const [cardUrl, setCardUrl] = useState(`https://www.shrawello.com/#/${profile.slug}`);
+  const [cardUrl, setCardUrl] = useState(`https://www.shrawello.com/${profile.slug}`);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const origin = window.location.origin;
-      setCardUrl(`${origin}/#/${profile.slug}`);
+      setCardUrl(`${origin}/${profile.slug}`);
     }
   }, [profile.slug]);
 

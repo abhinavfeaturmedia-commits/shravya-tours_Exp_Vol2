@@ -4,6 +4,7 @@ import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 import { StaffMember } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { BrandSelect } from './BrandSelect';
 
 interface TransferRequestModalProps {
     isOpen: boolean;
@@ -91,9 +92,10 @@ export const TransferRequestModal: React.FC<TransferRequestModalProps> = ({
                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
                             Transfer To <span className="text-red-500">*</span>
                         </label>
-                        <select
+                        <BrandSelect
                             value={targetStaffId}
                             onChange={(e) => setTargetStaffId(e.target.value)}
+                            labelText="Recipient Staff"
                             className="w-full px-4 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-medium text-sm"
                             required
                         >
@@ -101,7 +103,7 @@ export const TransferRequestModal: React.FC<TransferRequestModalProps> = ({
                             {eligibleStaff.map(s => (
                                 <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
                             ))}
-                        </select>
+                        </BrandSelect>
                     </div>
 
                     <div>

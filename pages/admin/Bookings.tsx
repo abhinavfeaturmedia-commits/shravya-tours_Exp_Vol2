@@ -23,11 +23,14 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { formatPrice, calculateTripDuration, formatTripDuration, getPackageBasePax } from '../../utils/packageUtils';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 import { StaffMultiSelect } from '../../components/admin/StaffMultiSelect';
 import { EntityAuditTimeline } from '../../components/admin/EntityAuditTimeline';
 import { ThinkingOrb } from 'thinking-orbs';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
 import { TripFormShareButton } from '../../components/admin/TripFormShareButton';
 import { TripDetailsRequirementsCard } from '../../components/admin/TripDetailsRequirementsCard';
 
@@ -336,7 +339,8 @@ export const Bookings: React.FC = () => {
 
     // Fix #7: Delete task
     const handleDeleteBookingTask = async (taskId: string) => {
-        if (!confirm('Delete this task? This cannot be undone.')) return;
+        const ok = await confirmAction({ title: 'Delete Task', message: 'Delete this task? This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         try {
             await deleteTask(taskId);
             window.dispatchEvent(new CustomEvent('tasks-changed'));
@@ -385,7 +389,8 @@ export const Bookings: React.FC = () => {
         const bookingChecklist = tasks?.filter(t => t.relatedBookingId === viewingBooking.id) || [];
         const completed = bookingChecklist.filter(t => t.status === 'Completed');
         if (!completed.length) return;
-        if (!confirm(`Delete ${completed.length} completed task(s)?`)) return;
+        const ok = await confirmAction({ title: 'Clear Completed Tasks', message: `Delete ${completed.length} completed task(s)?`, confirmLabel: 'Delete All', tone: 'danger' });
+        if (!ok) return;
         for (const task of completed) {
             try { await deleteTask(task.id); } catch {}
         }
@@ -600,8 +605,9 @@ export const Bookings: React.FC = () => {
         toast.success('Note added');
     };
 
-    const handleDeleteNote = (bookingId: string, noteId: string) => {
-        if (!confirm('Delete this note?')) return;
+    const handleDeleteNote = async (bookingId: string, noteId: string) => {
+        const ok = await confirmAction({ title: 'Delete Note', message: 'Delete this note?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         const booking = bookings?.find(b => b.id === bookingId);
         if (!booking) return;
 
@@ -857,18 +863,30 @@ export const Bookings: React.FC = () => {
 
     // --- Actions Logic ---
 
-    const handleCancelBooking = (id: string) => {
+    const handleCancelBooking = async (id: string) => {
         if (!canAccess('bookings', 'cancel_booking')) {
             toast.error('Permission Denied: You do not have permission to cancel bookings.');
             return;
         }
-        if (confirm("Are you sure you want to cancel this booking? This action will set the status to 'Cancelled'.")) {
+        const ok = await confirmAction({
+            title: 'Cancel Booking',
+            message: "Are you sure you want to cancel this booking? This action will set the status to 'Cancelled'.",
+            confirmLabel: 'Cancel Booking',
+            tone: 'danger',
+        });
+        if (ok) {
             updateBooking(id, { status: BookingStatus.CANCELLED });
         }
     };
 
-    const handleProcessRefund = (id: string) => {
-        if (confirm("Process refund for this booking? This will mark the payment as 'Refunded'.")) {
+    const handleProcessRefund = async (id: string) => {
+        const ok = await confirmAction({
+            title: 'Process Refund',
+            message: "Process refund for this booking? This will mark the payment as 'Refunded'.",
+            confirmLabel: 'Mark Refunded',
+            tone: 'warning',
+        });
+        if (ok) {
             updateBooking(id, { payment: 'Refunded' });
             setIsModalOpen(false); // Close modal if open
         }
@@ -1450,7 +1468,7 @@ export const Bookings: React.FC = () => {
                                                                     </div>
                                                                 </label>
 
-                                                                <select
+                                                                <BrandSelect
                                                                     value={item.status}
                                                                     onChange={(e) => {
                                                                         const newStatus = e.target.value;
@@ -1474,7 +1492,7 @@ export const Bookings: React.FC = () => {
                                                                     <option value="Verified Success">Success</option>
                                                                     <option value="Delayed">Delayed</option>
                                                                     <option value="Substituted">Substituted</option>
-                                                                </select>
+                                                                </BrandSelect>
                                                             </div>
 
                                                             {item.notes && (
@@ -1535,7 +1553,7 @@ export const Bookings: React.FC = () => {
                                             </div>
                                         </div>
                                         <div className="flex gap-2 w-full sm:w-auto">
-                                            <select
+                                            <BrandSelect
                                                 value={selectedPredefinedPlaybookType}
                                                 onChange={e => setSelectedPredefinedPlaybookType(e.target.value)}
                                                 className="flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-extrabold text-slate-700 dark:text-slate-355 outline-none w-full sm:w-44 focus:ring-2 focus:ring-primary/20"
@@ -1550,7 +1568,7 @@ export const Bookings: React.FC = () => {
                                                         <option key={s} value={s}>{s} Playbook</option>
                                                     ))}
                                                 </optgroup>
-                                            </select>
+                                            </BrandSelect>
                                             <button
                                                 type="button"
                                                 onClick={handleGenerateBookingPlaybook}
@@ -1672,7 +1690,7 @@ export const Bookings: React.FC = () => {
 
                                                 <div>
                                                     <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Due Date</label>
-                                                    <input
+                                                    <BrandDatePicker
                                                         type="date"
                                                         value={manualTaskDueDate}
                                                         onChange={e => setManualTaskDueDate(e.target.value)}
@@ -1682,7 +1700,7 @@ export const Bookings: React.FC = () => {
 
                                                 <div>
                                                     <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Priority</label>
-                                                    <select
+                                                    <BrandSelect
                                                         value={manualTaskPriority}
                                                         onChange={e => setManualTaskPriority(e.target.value as any)}
                                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-extrabold text-slate-705 dark:text-slate-355 outline-none focus:ring-2 focus:ring-primary/20"
@@ -1691,12 +1709,12 @@ export const Bookings: React.FC = () => {
                                                         <option value="Medium">Medium</option>
                                                         <option value="High">High</option>
                                                         <option value="Urgent">Urgent</option>
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
 
                                                 <div className="md:col-span-2">
                                                     <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">Assign To Staff</label>
-                                                    <select
+                                                    <BrandSelect
                                                         value={manualTaskAssignee}
                                                         onChange={e => setManualTaskAssignee(e.target.value)}
                                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-250 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-extrabold text-slate-705 dark:text-slate-355 outline-none focus:ring-2 focus:ring-primary/20"
@@ -1705,7 +1723,7 @@ export const Bookings: React.FC = () => {
                                                         {staff.map(s => (
                                                             <option key={s.id} value={s.id}>{s.name} ({s.role || 'Staff'})</option>
                                                         ))}
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
                                             </div>
 
@@ -1877,18 +1895,17 @@ export const Bookings: React.FC = () => {
                                                                 <span className="material-symbols-outlined text-[13px]">assignment_ind</span>
                                                                 <span>Assigned to:</span>
                                                                 {reassigningTaskId === task.id ? (
-                                                                    <select
+                                                                    <BrandSelect
                                                                         value={task.assignedTo || ''}
                                                                         onChange={(e) => handleReassignTask(task.id, e.target.value)}
                                                                         onBlur={() => setReassigningTaskId(null)}
-                                                                        autoFocus
                                                                         className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-0.5 text-[10px] font-bold text-slate-800 dark:text-slate-200 outline-none focus:ring-1 focus:ring-primary/20"
                                                                     >
                                                                         <option value="">Unassigned</option>
                                                                         {staff.map(s => (
                                                                             <option key={s.id} value={s.id}>{s.name}</option>
                                                                         ))}
-                                                                    </select>
+                                                                    </BrandSelect>
                                                                 ) : (
                                                                     <button
                                                                         type="button"
@@ -2152,7 +2169,13 @@ export const Bookings: React.FC = () => {
                                                 <button
                                                     type="button"
                                                     onClick={async () => {
-                                                        if (confirm(`Remove promotion code ${viewingBooking.appliedCouponCode} from this booking?`)) {
+                                                        const ok = await confirmAction({
+                                                            title: 'Remove Coupon',
+                                                            message: `Remove promotion code ${viewingBooking.appliedCouponCode} from this booking?`,
+                                                            confirmLabel: 'Remove',
+                                                            tone: 'warning',
+                                                        });
+                                                        if (ok) {
                                                             try {
                                                                 await detachCoupon(viewingBooking.id);
                                                             } catch (err) {
@@ -2587,29 +2610,29 @@ export const Bookings: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Booking Type</label>
-                                        <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as BookingType, packageId: '', title: '' })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value as BookingType, packageId: '', title: '' })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value="Tour">Tour Package</option>
                                             <option value="Hotel">Hotel Stay</option>
                                             <option value="Car">Car Rental</option>
                                             <option value="Bus">Bus Ticket</option>
                                             <option value="Train">Train Ticket</option>
                                             <option value="Flight">Flight Ticket</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">{formData.type === 'Tour' ? 'Select Package' : 'Service Title'}</label>
                                         {formData.type === 'Tour' ? (
-                                            <select value={formData.packageId} onChange={handlePackageChange} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                            <BrandSelect value={formData.packageId} onChange={handlePackageChange} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
                                                 <option value="" disabled>Select a package</option>
                                                 {packages.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-                                            </select>
+                                            </BrandSelect>
                                         ) : (
                                             <input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" placeholder="e.g. Innova Rental" />
                                         )}
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Start Date</label>
-                                        <input type="date" value={formData.date} onChange={e => {
+                                        <BrandDatePicker type="date" value={formData.date} onChange={e => {
                                             const newStartDate = e.target.value;
                                             // Try to keep the duration same if existing end date
                                             setFormData(prev => {
@@ -2627,7 +2650,7 @@ export const Bookings: React.FC = () => {
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">End Date</label>
-                                        <input type="date" min={formData.date} value={formData.endDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                        <BrandDatePicker type="date" min={formData.date} value={formData.endDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Total Amount (₹)</label>
@@ -2641,11 +2664,11 @@ export const Bookings: React.FC = () => {
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Service Category</label>
-                                        <select value={formData.serviceType} onChange={e => setFormData({ ...formData, serviceType: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold">
+                                        <BrandSelect value={formData.serviceType} onChange={e => setFormData({ ...formData, serviceType: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-bold">
                                             {['Full package', 'Hotel + Flight', 'Hotel + Transport', 'Hotel only', 'Flight only', 'Transport only', 'Activities only', 'Visa only'].map(t => (
                                                 <option key={t} value={t}>{t}</option>
                                             ))}
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                 </div>
                             </div>
@@ -2656,21 +2679,21 @@ export const Bookings: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Booking Status</label>
-                                        <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value as BookingStatus })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value as BookingStatus })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value={BookingStatus.PENDING}>Pending</option>
                                             <option value={BookingStatus.CONFIRMED}>Confirmed</option>
                                             <option value={BookingStatus.COMPLETED}>Completed</option>
                                             <option value={BookingStatus.CANCELLED}>Cancelled</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Payment Status</label>
-                                        <select value={formData.payment} onChange={e => setFormData({ ...formData, payment: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect value={formData.payment} onChange={e => setFormData({ ...formData, payment: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value="Unpaid">Unpaid</option>
                                             <option value="Deposit">Deposit Paid</option>
                                             <option value="Paid">Fully Paid</option>
                                             <option value="Refunded">Refunded</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                 </div>
                                 <div className="mt-4 space-y-1">
@@ -3055,7 +3078,7 @@ export const Bookings: React.FC = () => {
 
                                                                                     <button 
                                                                                         onClick={() => {
-                                                                                            const paymentUrl = `${window.location.origin}/#/my-account/booking/${booking.id}`;
+                                                                                            const paymentUrl = `${window.location.origin}/my-account/booking/${booking.id}`;
                                                                                             navigator.clipboard.writeText(paymentUrl);
                                                                                             toast.success('Payment portal link copied to clipboard!');
                                                                                         }}
@@ -3068,7 +3091,7 @@ export const Bookings: React.FC = () => {
                                                                                     <div className="flex gap-1.5">
                                                                                         <a 
                                                                                             href={`https://wa.me/${(booking.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(
-                                                                                                `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nA pending balance of ${formatPrice(booking.amount - net)} is due.\n\nYou can view details and make the payment online here: ${window.location.origin}/#/my-account/booking/${booking.id}\n\nThank you!`
+                                                                                                `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nA pending balance of ${formatPrice(booking.amount - net)} is due.\n\nYou can view details and make the payment online here: ${window.location.origin}/my-account/booking/${booking.id}\n\nThank you!`
                                                                                             )}`}
                                                                                             target="_blank"
                                                                                             rel="noreferrer"
@@ -3081,7 +3104,7 @@ export const Bookings: React.FC = () => {
                                                                                             href={`mailto:${booking.email}?subject=${encodeURIComponent(
                                                                                                 `Payment Reminder: Booking for ${booking.title}`
                                                                                             )}&body=${encodeURIComponent(
-                                                                                                `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nTotal Booking Amount: ${formatPrice(booking.amount)}\nPaid Amount: ${formatPrice(net)}\nRemaining Balance: ${formatPrice(booking.amount - net)}\n\nPlease make the remaining payment online by logging into your account or visiting the link below:\n${window.location.origin}/#/my-account/booking/${booking.id}\n\nThank you,\nShrawello Travel Hub`
+                                                                                                `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nTotal Booking Amount: ${formatPrice(booking.amount)}\nPaid Amount: ${formatPrice(net)}\nRemaining Balance: ${formatPrice(booking.amount - net)}\n\nPlease make the remaining payment online by logging into your account or visiting the link below:\n${window.location.origin}/my-account/booking/${booking.id}\n\nThank you,\nShrawello Travel Hub`
                                                                                             )}`}
                                                                                             className="flex-1 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
                                                                                         >
@@ -3264,8 +3287,14 @@ export const Bookings: React.FC = () => {
                                                             )}
 
                                                             {hasPermission('bookings', 'manage') && (
-                                                                <button onClick={() => {
-                                                                    if (confirm("Are you sure you want to permanently delete this booking? This action cannot be undone.")) {
+                                                                <button onClick={async () => {
+                                                                    const ok = await confirmAction({
+                                                                        title: 'Delete Booking',
+                                                                        message: 'Are you sure you want to permanently delete this booking? This action cannot be undone.',
+                                                                        confirmLabel: 'Delete Permanently',
+                                                                        tone: 'danger',
+                                                                    });
+                                                                    if (ok) {
                                                                         const toastId = toast.loading('Deleting booking...');
                                                                         deleteBooking(booking.id)
                                                                             .then(() => {
@@ -3402,7 +3431,7 @@ export const Bookings: React.FC = () => {
 
                                                                         <button 
                                                                             onClick={() => {
-                                                                                const paymentUrl = `${window.location.origin}/#/my-account/booking/${booking.id}`;
+                                                                                const paymentUrl = `${window.location.origin}/my-account/booking/${booking.id}`;
                                                                                 navigator.clipboard.writeText(paymentUrl);
                                                                                 toast.success('Payment portal link copied to clipboard!');
                                                                             }}
@@ -3415,7 +3444,7 @@ export const Bookings: React.FC = () => {
                                                                         <div className="flex gap-1.5">
                                                                             <a 
                                                                                 href={`https://wa.me/${(booking.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(
-                                                                                    `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nA pending balance of ${formatPrice(booking.amount - net)} is due.\n\nYou can view details and make the payment online here: ${window.location.origin}/#/my-account/booking/${booking.id}\n\nThank you!`
+                                                                                    `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nA pending balance of ${formatPrice(booking.amount - net)} is due.\n\nYou can view details and make the payment online here: ${window.location.origin}/my-account/booking/${booking.id}\n\nThank you!`
                                                                                 )}`}
                                                                                 target="_blank"
                                                                                 rel="noreferrer"
@@ -3428,7 +3457,7 @@ export const Bookings: React.FC = () => {
                                                                                 href={`mailto:${booking.email}?subject=${encodeURIComponent(
                                                                                     `Payment Reminder: Booking for ${booking.title}`
                                                                                 )}&body=${encodeURIComponent(
-                                                                                    `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nTotal Booking Amount: ${formatPrice(booking.amount)}\nPaid Amount: ${formatPrice(net)}\nRemaining Balance: ${formatPrice(booking.amount - net)}\n\nPlease make the remaining payment online by logging into your account or visiting the link below:\n${window.location.origin}/#/my-account/booking/${booking.id}\n\nThank you,\nShrawello Travel Hub`
+                                                                                    `Hi ${booking.customer},\n\nThis is a friendly reminder from Shrawello Travel Hub regarding your booking for "${booking.title}".\n\nTotal Booking Amount: ${formatPrice(booking.amount)}\nPaid Amount: ${formatPrice(net)}\nRemaining Balance: ${formatPrice(booking.amount - net)}\n\nPlease make the remaining payment online by logging into your account or visiting the link below:\n${window.location.origin}/my-account/booking/${booking.id}\n\nThank you,\nShrawello Travel Hub`
                                                                                 )}`}
                                                                                 className="flex-1 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-[10px] rounded-lg transition-colors flex items-center justify-center gap-1 uppercase tracking-wider"
                                                                             >
@@ -3685,8 +3714,14 @@ export const Bookings: React.FC = () => {
                                                             )}
 
                                                             {hasPermission('bookings', 'manage') && (
-                                                                <button onClick={() => {
-                                                                    if (confirm("Are you sure you want to permanently delete this booking? This action cannot be undone.")) {
+                                                                <button onClick={async () => {
+                                                                    const ok = await confirmAction({
+                                                                        title: 'Delete Booking',
+                                                                        message: 'Are you sure you want to permanently delete this booking? This action cannot be undone.',
+                                                                        confirmLabel: 'Delete Permanently',
+                                                                        tone: 'danger',
+                                                                    });
+                                                                    if (ok) {
                                                                         const toastId = toast.loading('Deleting booking...');
                                                                         deleteBooking(booking.id)
                                                                             .then(() => {

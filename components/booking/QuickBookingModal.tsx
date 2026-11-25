@@ -7,6 +7,7 @@ import { Lead } from '../../types';
 import { useData } from '../../context/DataContext';
 import { toast } from '../ui/Toast';
 import { TravelerSelector } from '../ui/TravelerSelector';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 import { BorderBeam } from 'border-beam';
 import { ThinkingOrb } from 'thinking-orbs';
 
@@ -272,11 +273,11 @@ export const QuickBookingModal: React.FC<QuickBookingModalProps> = ({
 
                         <div className="space-y-1">
                             <label className="block text-xs font-bold uppercase text-slate-500 ml-1">Travel Date</label>
-                            <input
+                            <BrandDatePicker
                                 {...register('date')}
-                                type="date"
                                 min={today}
-                                className={`w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all font-medium ${errors.date ? 'border-red-300 bg-red-50' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                                labelText="Travel Date"
+                                className={`w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all font-medium ${errors.date ? 'border-red-300 bg-red-50' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
                                     }`}
                             />
                             {errors.date && <p className="text-xs text-red-500 mt-1 ml-1">{errors.date.message}</p>}

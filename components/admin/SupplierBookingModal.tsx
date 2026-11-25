@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { SupplierBooking, SupplierBookingStatus, SupplierPayment, Vendor } from '../../types';
 import { useData } from '../../context/DataContext';
 import { VendorSearchSelect } from './VendorSearchSelect';
+import { toast } from 'sonner';
+import BrandSelect from '../ui/BrandSelect';
+import BrandDatePicker from '../ui/BrandDatePicker';
 
 interface SupplierBookingModalProps {
     isOpen: boolean;
@@ -278,12 +281,12 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
         if (isSubmitting) return;
 
         if (!formData.vendorId) {
-            alert('Please select a vendor.');
+            toast.error('Please select a vendor.');
             return;
         }
 
         if (!formData.serviceType || formData.serviceType.trim() === '') {
-            alert('Please select at least one service type.');
+            toast.error('Please select at least one service type.');
             return;
         }
 
@@ -536,7 +539,7 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
                                         </div>
                                     </div>
                                 ) : (
-                                    <select
+                                    <BrandSelect
                                         value={formData.serviceType}
                                         onChange={e => setFormData({ ...formData, serviceType: e.target.value as any })}
                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
@@ -547,7 +550,7 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
                                         <option value="Activity">Activity</option>
                                         <option value="Guide">Guide</option>
                                         <option value="Other">Other</option>
-                                    </select>
+                                    </BrandSelect>
                                 )}
                             </div>
 
@@ -709,7 +712,7 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
                                         </span>
                                     )}
                                 </div>
-                                <select
+                                <BrandSelect
                                     value={formData.paymentStatus}
                                     onChange={e => setFormData({ ...formData, paymentStatus: e.target.value as any })}
                                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary font-medium"
@@ -718,11 +721,11 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
                                     <option value="Partially Paid">Partially Paid</option>
                                     <option value="Paid">Paid</option>
                                     <option value="Refunded">Refunded</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                             <div className="space-y-1">
                                 <label className="text-xs font-bold text-slate-500">Booking Status</label>
-                                <select
+                                <BrandSelect
                                     value={formData.bookingStatus}
                                     onChange={e => setFormData({ ...formData, bookingStatus: e.target.value as any })}
                                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
@@ -730,13 +733,13 @@ export const SupplierBookingModal: React.FC<SupplierBookingModalProps> = ({ isOp
                                     <option value="Pending">Pending</option>
                                     <option value="Confirmed">Confirmed</option>
                                     <option value="Cancelled">Cancelled</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                         </div>
 
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-slate-500">Payment Due Date</label>
-                            <input
+                            <BrandDatePicker
                                 type="date"
                                 value={formData.paymentDueDate}
                                 onChange={e => setFormData({ ...formData, paymentDueDate: e.target.value })}

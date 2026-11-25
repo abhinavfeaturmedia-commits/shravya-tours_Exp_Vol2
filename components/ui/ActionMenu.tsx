@@ -25,18 +25,28 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ children }) => {
             if (isOpen) setIsOpen(false);
         };
 
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setIsOpen(false);
+                buttonRef.current?.focus();
+            }
+        };
+
         if (isOpen) {
             document.addEventListener('mousedown', handleClickOutside);
+            document.addEventListener('keydown', handleKeyDown);
             window.addEventListener('scroll', handleScrollOrResize, true);
             window.addEventListener('resize', handleScrollOrResize);
         } else {
             document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('scroll', handleScrollOrResize, true);
             window.removeEventListener('resize', handleScrollOrResize);
         }
 
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('scroll', handleScrollOrResize, true);
             window.removeEventListener('resize', handleScrollOrResize);
         };
@@ -46,8 +56,9 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ children }) => {
         e.stopPropagation();
         if (!isOpen && buttonRef.current) {
             const rect = buttonRef.current.getBoundingClientRect();
+            const clampedRight = Math.max(200, Math.min(rect.right, window.innerWidth - 8));
             setCoords({
-                x: rect.right, 
+                x: clampedRight, 
                 top: rect.top,
                 bottom: rect.bottom,
                 bottomSpace: window.innerHeight - rect.bottom
@@ -60,8 +71,12 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ children }) => {
         <>
             <button
                 ref={buttonRef}
+                type="button"
                 onClick={toggleMenu}
-                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors focus:outline-none flex items-center justify-center relative"
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
+                aria-label="More options"
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center relative"
                 title="Options"
             >
                 <span className="material-symbols-outlined text-[20px]">more_vert</span>
@@ -70,6 +85,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ children }) => {
             {isOpen && createPortal(
                 <div 
                     ref={menuRef}
+                    role="menu"
                     onClick={(e) => {
                         e.stopPropagation();
                         // Automatically close the menu when any action inside is clicked

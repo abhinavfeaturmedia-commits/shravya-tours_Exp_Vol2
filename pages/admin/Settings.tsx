@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { INDIAN_GST_STATES, getIndianFinancialYear, DEFAULT_SAC_CODE, INDIAN_TOUR_TRAVEL_SAC_CODES, getSacDetails } from '../../utils/gstUtils';
 import { api } from '../../src/lib/api';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 // ─── Sidebar tabs ────────────────────────────────────────────────────────────
 const TABS = [
@@ -532,7 +533,7 @@ const FinanceSection: React.FC = () => {
             <NumberInput value={form.tcsPercent} onChange={v => setNum('tcsPercent', v)} min={0} max={10} step={0.1} suffix="%" />
           </Field>
           <Field label="Default Place of Supply" hint="Supplier operating state (Mandatory for GST Rule 46)">
-            <select
+            <BrandSelect
               value={form.defaultPlaceOfSupplyCode || '27'}
               onChange={e => {
                 const selected = INDIAN_GST_STATES.find(s => s.code === e.target.value);
@@ -550,20 +551,20 @@ const FinanceSection: React.FC = () => {
               {INDIAN_GST_STATES.map(s => (
                 <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
               ))}
-            </select>
+            </BrandSelect>
           </Field>
           <Field label="Reverse Charge Mechanism (RCM)" hint="Mandatory declaration on Tax Invoices (Rule 46(p))">
-            <select
+            <BrandSelect
               value={form.defaultReverseCharge || 'No'}
               onChange={e => setStr('defaultReverseCharge', e.target.value)}
               className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-primary outline-none transition-all"
             >
               <option value="No">No (Standard B2C & B2B)</option>
               <option value="Yes">Yes (Tax payable under Reverse Charge)</option>
-            </select>
+            </BrandSelect>
           </Field>
           <Field label="Default HSN / SAC Code" hint="Default code applied to new invoice items (Default: 996601 for Cab/Passenger vehicle rental)">
-            <select
+            <BrandSelect
               value={form.defaultSacCode || DEFAULT_SAC_CODE}
               onChange={e => setStr('defaultSacCode', e.target.value)}
               className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-primary outline-none transition-all font-mono font-medium"
@@ -573,7 +574,7 @@ const FinanceSection: React.FC = () => {
                   {s.code} — {s.shortName} ({s.gstRateDescription})
                 </option>
               ))}
-            </select>
+            </BrandSelect>
           </Field>
         </div>
 
@@ -680,7 +681,7 @@ const FinanceSection: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 items-end">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Document Series</label>
-              <select
+              <BrandSelect
                 value={overrideDocType}
                 onChange={e => setOverrideDocType(e.target.value)}
                 className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-white"
@@ -690,7 +691,7 @@ const FinanceSection: React.FC = () => {
                 <option value="Quotation">Quotation</option>
                 <option value="CreditNote">Credit Note</option>
                 <option value="Receipt">Payment Receipt</option>
-              </select>
+              </BrandSelect>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Next Starting Number</label>
@@ -874,14 +875,14 @@ const StaffSection: React.FC = () => {
 
       <SectionCard title="CRM Defaults" description="Applied when new staff members are created">
         <Field label="Default Query Scope for New Staff">
-          <select
+          <BrandSelect
             value={form.defaultQueryScope}
             onChange={e => setStr('defaultQueryScope', e.target.value)}
             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-primary outline-none"
           >
             <option value="Show All Queries">Show All Queries</option>
             <option value="Show Assigned Query Only">Show Assigned Queries Only</option>
-          </select>
+          </BrandSelect>
         </Field>
       </SectionCard>
 
@@ -1112,11 +1113,11 @@ const IntegrationsSection: React.FC = () => {
         workflow="Workflow: Lead created → WhatsApp greeting sent → Follow-up due → Automated reminder → Booking confirmed → Confirmation message with invoice link"
       >
         <Field label="Provider">
-          <select value={form.whatsapp.provider} onChange={e => setWA('provider', e.target.value)}
+          <BrandSelect value={form.whatsapp.provider} onChange={e => setWA('provider', e.target.value)}
             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white outline-none">
             <option value="meta">Meta Cloud API (Recommended — free up to 1K conversations/mo)</option>
             <option value="twilio">Twilio WhatsApp (Pay-per-message)</option>
-          </select>
+          </BrandSelect>
         </Field>
 
         {form.whatsapp.provider === 'meta' ? (
@@ -1302,12 +1303,12 @@ const IntegrationsSection: React.FC = () => {
         workflow="Workflow: New booking → SMS confirmation with booking ID → Payment received → SMS receipt → Departure D-1 → SMS reminder with check-in details"
       >
         <Field label="Provider">
-          <select value={form.sms.provider} onChange={e => setSMS('provider', e.target.value)}
+          <BrandSelect value={form.sms.provider} onChange={e => setSMS('provider', e.target.value)}
             className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white outline-none">
             <option value="msg91">MSG91 (Indian DLT-registered, recommended for India)</option>
             <option value="twilio">Twilio SMS</option>
             <option value="textlocal">TextLocal</option>
-          </select>
+          </BrandSelect>
         </Field>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {form.sms.provider === 'msg91' ? (
@@ -1364,7 +1365,7 @@ const IntegrationsSection: React.FC = () => {
             <SecretInput value={form.openrouter.apiKey} onChange={v => setOR('apiKey', v)} placeholder="sk-or-v1-..." />
           </Field>
           <Field label="Default Model">
-            <select value={form.openrouter.defaultModel} onChange={e => setOR('defaultModel', e.target.value)}
+            <BrandSelect value={form.openrouter.defaultModel} onChange={e => setOR('defaultModel', e.target.value)}
               className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-900 dark:text-white outline-none">
               {loadingModels ? (
                 <option value={form.openrouter.defaultModel}>Loading models...</option>
@@ -1389,7 +1390,7 @@ const IntegrationsSection: React.FC = () => {
                 </>
 
               )}
-            </select>
+            </BrandSelect>
           </Field>
         </div>
       </IntegrationCard>

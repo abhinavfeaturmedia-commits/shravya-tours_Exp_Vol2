@@ -19,6 +19,9 @@ import {
     getSacDetails, 
     formatSacDisplay 
 } from '../../utils/gstUtils';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
+import BrandComboInput from '../../components/ui/BrandComboInput';
 
 interface DescriptionEditorCellProps {
     value: string;
@@ -1861,7 +1864,7 @@ export const DocumentEditor: React.FC = () => {
                         {/* Search & Category Filter Bar */}
                         <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3">
                             <div className="flex gap-2">
-                                <select
+                                <BrandSelect
                                     value={searchType}
                                     onChange={(e) => {
                                         setSearchType(e.target.value);
@@ -1873,7 +1876,7 @@ export const DocumentEditor: React.FC = () => {
                                     <option value="bookings">Bookings</option>
                                     <option value="leads">Leads</option>
                                     <option value="customers">Customers</option>
-                                </select>
+                                </BrandSelect>
                                 
                                 <div className="flex-1 relative">
                                     <input
@@ -2061,7 +2064,7 @@ export const DocumentEditor: React.FC = () => {
                             </div>
                             <div>
                                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Payment Method</label>
-                                <select
+                                <BrandSelect
                                     value={paymentMethod}
                                     onChange={e => setPaymentMethod(e.target.value)}
                                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-violet-500 transition-all"
@@ -2072,7 +2075,7 @@ export const DocumentEditor: React.FC = () => {
                                     <option>Cheque</option>
                                     <option>Credit Card</option>
                                     <option>Debit Card</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                             <div>
                                 <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Note (optional)</label>
@@ -2372,7 +2375,7 @@ export const DocumentEditor: React.FC = () => {
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Reason for Credit Note</label>
-                                            <select
+                                            <BrandSelect
                                                 value={docData.credit_reason || 'Cancellation / Revision'}
                                                 onChange={e => setDocData({ ...docData, credit_reason: e.target.value })}
                                                 className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 dark:text-white cursor-pointer"
@@ -2381,7 +2384,7 @@ export const DocumentEditor: React.FC = () => {
                                                 <option value="Post-sale Discount">Post-sale Discount / Rate Adjustment</option>
                                                 <option value="Deficiency in Service">Deficiency in Service / Partial Refund</option>
                                                 <option value="Correction in Invoice">Typo / GST Correction</option>
-                                            </select>
+                                            </BrandSelect>
                                         </div>
                                     </div>
                                 </div>
@@ -2401,8 +2404,9 @@ export const DocumentEditor: React.FC = () => {
                                 <div className="bg-slate-50/50 dark:bg-slate-800/10 border border-slate-100 dark:border-slate-800/60 rounded-2xl p-3.5 flex flex-col justify-center transition-colors">
                                     <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider mb-1">Issue Date</span>
                                     <div className="flex items-center gap-1.5">
-                                        <input
+                                        <BrandDatePicker
                                             type="date"
+                                            hideIcon
                                             value={formatLocalDate(docData.issue_date) || formatLocalDate(new Date())}
                                             min={(!docData.invoice_no && latestInvoiceMinDate) ? latestInvoiceMinDate : undefined}
                                             onChange={e => {
@@ -2479,8 +2483,9 @@ export const DocumentEditor: React.FC = () => {
                                         )}
                                     </div>
                                     <div className="flex items-center gap-1.5">
-                                        <input
+                                        <BrandDatePicker
                                             type="date"
+                                            hideIcon
                                             value={formatLocalDate(docData.due_date) || ''}
                                             min={formatLocalDate(docData.issue_date) || formatLocalDate(new Date())}
                                             onChange={e => {
@@ -2507,8 +2512,9 @@ export const DocumentEditor: React.FC = () => {
                                         ✈ Travel Date From
                                     </span>
                                     <div className="flex items-center gap-1.5">
-                                        <input
+                                        <BrandDatePicker
                                             type="date"
+                                            hideIcon
                                             value={formatLocalDate(docData.travel_date_from) || ''}
                                             onChange={e => {
                                                 const val = e.target.value || '';
@@ -2543,8 +2549,9 @@ export const DocumentEditor: React.FC = () => {
                                         })()}
                                     </span>
                                     <div className="flex items-center gap-1.5">
-                                        <input
+                                        <BrandDatePicker
                                             type="date"
+                                            hideIcon
                                             value={formatLocalDate(docData.travel_date_to) || ''}
                                             min={formatLocalDate(docData.travel_date_from) || undefined}
                                             onChange={e => {
@@ -2776,7 +2783,7 @@ export const DocumentEditor: React.FC = () => {
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                                                 <div>
                                                     <span className="font-bold text-slate-400 dark:text-slate-500 block mb-0.5 text-[10px] uppercase">Place of Supply (Rule 46(d)):</span>
-                                                    <select
+                                                    <BrandSelect
                                                         value={docData.place_of_supply_code || '27'}
                                                         onChange={(e) => {
                                                             const selected = INDIAN_GST_STATES.find(s => s.code === e.target.value);
@@ -2795,45 +2802,45 @@ export const DocumentEditor: React.FC = () => {
                                                         {INDIAN_GST_STATES.map(s => (
                                                             <option key={s.code} value={s.code}>{s.code} - {s.name}</option>
                                                         ))}
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
 
                                                 <div>
                                                     <span className="font-bold text-slate-400 dark:text-slate-500 block mb-0.5 text-[10px] uppercase">GST Type:</span>
-                                                    <select
+                                                    <BrandSelect
                                                         value={docData.gst_type || 'CGST_SGST'}
                                                         onChange={(e) => setDocData({ ...docData, gst_type: e.target.value })}
                                                         className="w-full bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 font-bold transition-all text-xs cursor-pointer"
                                                     >
                                                         <option value="CGST_SGST">Intra-state (CGST + SGST)</option>
                                                         <option value="IGST">Inter-state (IGST)</option>
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
                                             </div>
 
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
                                                 <div>
                                                     <span className="font-bold text-slate-400 dark:text-slate-500 block mb-0.5 text-[10px] uppercase">Reverse Charge (RCM):</span>
-                                                    <select
+                                                    <BrandSelect
                                                         value={docData.reverse_charge || 'No'}
                                                         onChange={(e) => setDocData({ ...docData, reverse_charge: e.target.value })}
                                                         className="w-full bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 font-semibold transition-all text-xs cursor-pointer"
                                                     >
                                                         <option value="No">No (Standard B2C / B2B)</option>
                                                         <option value="Yes">Yes (Payable under RCM)</option>
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
 
                                                 <div>
                                                     <span className="font-bold text-slate-400 dark:text-slate-500 block mb-0.5 text-[10px] uppercase">Copy Type (Rule 48):</span>
-                                                    <select
+                                                    <BrandSelect
                                                         value={docData.copy_type || 'ORIGINAL FOR RECIPIENT'}
                                                         onChange={(e) => setDocData({ ...docData, copy_type: e.target.value })}
                                                         className="w-full bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 font-semibold transition-all text-xs cursor-pointer"
                                                     >
                                                         <option value="ORIGINAL FOR RECIPIENT">Original For Recipient</option>
                                                         <option value="DUPLICATE FOR SUPPLIER">Duplicate For Supplier</option>
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
                                             </div>
                                         </div>
@@ -2897,9 +2904,14 @@ export const DocumentEditor: React.FC = () => {
                                                     </span>
                                                     <div className="print:hidden flex flex-col items-center gap-1">
                                                         <div className="relative w-full">
-                                                            <input
-                                                                type="text"
-                                                                list="sac-options-list"
+                                                            <BrandComboInput
+                                                                hideChevron
+                                                                labelText="HSN / SAC Code"
+                                                                suggestions={INDIAN_TOUR_TRAVEL_SAC_CODES.map((sac) => ({
+                                                                    value: sac.code,
+                                                                    label: `${sac.code} - ${sac.name}`,
+                                                                    description: sac.gstRateDescription,
+                                                                }))}
                                                                 value={item.hsn_sac || fi.defaultSacCode || DEFAULT_SAC_CODE}
                                                                 onChange={(e) => {
                                                                     const newSac = e.target.value.trim();
@@ -2958,7 +2970,8 @@ export const DocumentEditor: React.FC = () => {
                                                             placeholder="1"
                                                         />
                                                         <div className="w-px bg-slate-200 dark:bg-slate-700 my-1" />
-                                                        <select
+                                                        <BrandSelect
+                                                            hideChevron
                                                             value={daysKmUnit}
                                                             onChange={(e) => {
                                                                 handleItemChange(index, 'total_days_km', `${daysKmNum} ${e.target.value}`);
@@ -2967,7 +2980,7 @@ export const DocumentEditor: React.FC = () => {
                                                         >
                                                             <option value="Days">Days</option>
                                                             <option value="Km">Km</option>
-                                                        </select>
+                                                        </BrandSelect>
                                                     </div>
                                                 </div>
                                                 <span className="hidden print:inline font-semibold">
@@ -2997,7 +3010,8 @@ export const DocumentEditor: React.FC = () => {
                                             </td>
                                             {docData.is_gst === 1 && (
                                                 <td className="px-2 py-3.5 align-middle text-center w-24 min-w-[85px]">
-                                                    <select
+                                                    <BrandSelect
+                                                        hideChevron
                                                         value={item.tax_rate ?? 0}
                                                         onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value) || 0)}
                                                         className="w-full bg-white dark:bg-slate-800 text-center text-slate-900 dark:text-white font-bold outline-none border border-slate-300 dark:border-slate-700 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 rounded-xl transition-all text-xs py-2 px-1.5 cursor-pointer shadow-2xs"
@@ -3007,7 +3021,7 @@ export const DocumentEditor: React.FC = () => {
                                                         <option value="12">12%</option>
                                                         <option value="18">18%</option>
                                                         <option value="28">28%</option>
-                                                    </select>
+                                                    </BrandSelect>
                                                 </td>
                                             )}
                                             <td className="px-3 sm:px-4 py-3.5 align-middle text-right text-[#091C3B] dark:text-white tabular-nums font-black text-xs whitespace-nowrap w-32 min-w-[120px]">
@@ -3044,15 +3058,6 @@ export const DocumentEditor: React.FC = () => {
                                 </button>
                             )}
                         </div>
-
-                        {/* Datalist for autocomplete on SAC code input */}
-                        <datalist id="sac-options-list">
-                            {INDIAN_TOUR_TRAVEL_SAC_CODES.map((sac) => (
-                                <option key={sac.code} value={sac.code}>
-                                    {sac.code} - {sac.name} ({sac.gstRateDescription})
-                                </option>
-                            ))}
-                        </datalist>
 
                         {/* Totals Section */}
                         <div className="flex flex-col lg:flex-row items-stretch justify-between gap-8 pt-8 border-t border-slate-100 dark:border-slate-800/80">
@@ -3292,7 +3297,7 @@ export const DocumentEditor: React.FC = () => {
                                         <div className="flex flex-col gap-2">
                                             <div className="flex justify-between items-center text-slate-700 dark:text-slate-200">
                                                 <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Amount Paid</span>
-                                                <select
+                                                <BrandSelect
                                                     value={docData.payment_status === 'Part Paid' ? 'Partially Paid' : docData.payment_status || 'Unpaid'}
                                                     onChange={e => handlePaymentStatusChange(e.target.value)}
                                                     className="bg-transparent border border-emerald-500/20 rounded-lg px-2 py-0.5 outline-none print:hidden text-[10px] text-emerald-600 dark:text-emerald-400 font-extrabold cursor-pointer dark:bg-slate-900 focus:border-emerald-500"
@@ -3300,7 +3305,7 @@ export const DocumentEditor: React.FC = () => {
                                                     <option value="Unpaid">Unpaid</option>
                                                     <option value="Partially Paid">Part Paid</option>
                                                     <option value="Paid">Paid</option>
-                                                </select>
+                                                </BrandSelect>
                                             </div>
                                             <div className="flex justify-end items-center mt-1">
                                                 <input

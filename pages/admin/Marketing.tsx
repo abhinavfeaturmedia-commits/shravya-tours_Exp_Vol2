@@ -5,6 +5,7 @@ import { Campaign } from '../../types';
 import { generateMarketingContent } from '../../src/lib/gemini';
 import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 export const Marketing: React.FC = () => {
     const { campaigns, addCampaign } = useData();
@@ -19,6 +20,7 @@ export const Marketing: React.FC = () => {
     const [aiTopic, setAiTopic] = useState('');
     const [aiTone, setAiTone] = useState('Professional & Engaging');
     const [generating, setGenerating] = useState(false);
+    const [aiPreview, setAiPreview] = useState<{ subject?: string; content?: string; hashtags?: string } | null>(null);
 
     const handleGenerate = async () => {
         if (!aiTopic) return toast.error("Please enter a topic");
@@ -31,14 +33,11 @@ export const Marketing: React.FC = () => {
             setNewCampaign(prev => ({
                 ...prev,
                 name: res.subject || `${aiTopic} Campaign`,
-                // In a real app we would have a 'content' field in Campaign type, 
-                // but for now we just assume the name is the subject/title.
             }));
+            setAiPreview(res);
 
             toast.dismiss(toastId);
-            toast.success("Content Generated!");
-            // In a real implementation we would save the 'content' to a state to show preview
-            alert(`AI Generated Content:\n\nSubject: ${res.subject}\n\nBody: ${res.content}\n\nHashtags: ${res.hashtags}`);
+            toast.success("Content Generated! Preview added below.");
 
         } catch (e) {
             console.error(e);
@@ -162,18 +161,18 @@ export const Marketing: React.FC = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Type</label>
-                                    <select className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm font-bold" value={newCampaign.type} onChange={e => setNewCampaign({ ...newCampaign, type: e.target.value as any })}>
+                                    <BrandSelect className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm font-bold" value={newCampaign.type} onChange={e => setNewCampaign({ ...newCampaign, type: e.target.value as any })}>
                                         <option>Email</option>
                                         <option>WhatsApp</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Audience</label>
-                                    <select className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm font-bold" value={newCampaign.audience} onChange={e => setNewCampaign({ ...newCampaign, audience: e.target.value as any })}>
+                                    <BrandSelect className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-2.5 rounded-xl text-sm font-bold" value={newCampaign.audience} onChange={e => setNewCampaign({ ...newCampaign, audience: e.target.value as any })}>
                                         <option>Leads</option>
                                         <option>Customers</option>
                                         <option>Agents</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
 
@@ -191,7 +190,7 @@ export const Marketing: React.FC = () => {
                                     </div>
                                     <div className="relative z-10">
                                         <label className="text-xs font-bold text-purple-700 dark:text-purple-300 uppercase block mb-1">Tone</label>
-                                        <select
+                                        <BrandSelect
                                             className="w-full bg-white dark:bg-slate-800 border-purple-200 dark:border-purple-800 p-2.5 rounded-xl text-sm"
                                             value={aiTone}
                                             onChange={e => setAiTone(e.target.value)}
@@ -200,7 +199,7 @@ export const Marketing: React.FC = () => {
                                             <option>Fun & Exciting</option>
                                             <option>Urgent (FOMO)</option>
                                             <option>Luxury & Elegant</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <button
                                         onClick={handleGenerate}
@@ -210,6 +209,13 @@ export const Marketing: React.FC = () => {
                                         {generating ? <span className="animate-spin material-symbols-outlined text-sm">rotate_right</span> : <Sparkles size={16} />}
                                         {generating ? 'Writing...' : 'Auto-Generate Content'}
                                     </button>
+                                    {aiPreview && (
+                                        <div className="relative z-10 mt-2 p-3 rounded-xl bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-800/60 text-xs space-y-1.5">
+                                            <p className="font-bold text-purple-700 dark:text-purple-300">Subject: {aiPreview.subject}</p>
+                                            <p className="text-slate-600 dark:text-slate-300 whitespace-pre-line">{aiPreview.content}</p>
+                                            {aiPreview.hashtags && <p className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">{aiPreview.hashtags}</p>}
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <div>

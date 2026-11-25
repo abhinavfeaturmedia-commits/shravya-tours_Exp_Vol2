@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 import { Expense } from '../../types';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 export const Expenses: React.FC = () => {
     const { expenses, isLoading, addExpense, updateExpense, deleteExpense } = useExpenses();
@@ -72,7 +75,13 @@ export const Expenses: React.FC = () => {
     };
 
     const handleDelete = async (id: string) => {
-        if (confirm("Delete this expense record?")) {
+        const ok = await confirmAction({
+            title: 'Delete Expense',
+            message: 'Delete this expense record?',
+            confirmLabel: 'Delete',
+            tone: 'danger',
+        });
+        if (ok) {
             await deleteExpense(id);
         }
     };
@@ -84,9 +93,9 @@ export const Expenses: React.FC = () => {
             {/* Header */}
             <div className="bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-10">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                        <Wallet className="text-red-500" /> <span className="font-display text-3xl">Expense Management</span>
-                    </h2>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-2 font-display">
+                        <Wallet className="text-red-500" /> <span>Expense Management</span>
+                    </h1>
                     <p className="text-slate-500 dark:text-slate-400 text-sm">Track monthly operational costs (Rent, Salaries, etc.)</p>
                 </div>
                 <button
@@ -257,7 +266,7 @@ export const Expenses: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Date</label>
-                                    <input required type="date" className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
+                                    <BrandDatePicker required type="date" className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
                                         value={newExpense.date}
                                         onChange={e => setNewExpense({ ...newExpense, date: e.target.value })}
                                     />
@@ -266,27 +275,27 @@ export const Expenses: React.FC = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Category</label>
-                                    <select className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
+                                    <BrandSelect className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
                                         value={newExpense.category}
                                         onChange={e => setNewExpense({ ...newExpense, category: e.target.value as any })}
                                     >
                                         {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Status</label>
-                                    <select className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
+                                    <BrandSelect className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
                                         value={newExpense.status}
                                         onChange={e => setNewExpense({ ...newExpense, status: e.target.value as any })}
                                     >
                                         <option value="Paid">Paid</option>
                                         <option value="Pending">Pending</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Payment Method</label>
-                                <select className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
+                                <BrandSelect className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full font-bold outline-none focus:ring-2 focus:ring-red-500 text-slate-900 dark:text-white"
                                     value={newExpense.paymentMethod}
                                     onChange={e => setNewExpense({ ...newExpense, paymentMethod: e.target.value as any })}
                                 >
@@ -294,7 +303,7 @@ export const Expenses: React.FC = () => {
                                     <option value="Bank Transfer">Bank Transfer</option>
                                     <option value="Credit Card">Credit Card</option>
                                     <option value="Cash">Cash</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div>

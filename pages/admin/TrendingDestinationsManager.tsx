@@ -4,6 +4,7 @@ import { TrendingDestination } from '../../types';
 import { api } from '../../src/lib/api';
 import { toast } from 'sonner';
 import { getLocationName } from '../../utils/packageUtils';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
 
 const BADGE_PRESETS = [
   { label: 'Hot', color: '#ef4444' },
@@ -140,7 +141,13 @@ export const TrendingDestinationsManager: React.FC = () => {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const ok = await confirmAction({
+      title: 'Delete Trending Destination',
+      message: `Delete "${name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     await deleteTrendingDestination(id);
     setAdminDests(prev => prev.filter(d => d.id !== id));
   };

@@ -1,4 +1,5 @@
 import React from 'react';
+import { BrandSelect } from './BrandSelect';
 
 interface PaginationProps {
     currentPage: number;
@@ -61,18 +62,19 @@ export const Pagination: React.FC<PaginationProps> = ({
                 {showItemsPerPage && onItemsPerPageChange && (
                     <div className="flex items-center gap-2">
                         <span className="text-slate-500 dark:text-slate-400 font-medium">Show</span>
-                        <select
+                        <BrandSelect
                             value={itemsPerPage}
+                            labelText="Items per page"
                             onChange={(e) => {
                                 onItemsPerPageChange(Number(e.target.value));
                                 onPageChange(1); // Reset to first page
                             }}
-                            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 text-sm font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-sm font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/50"
                         >
                             {itemsPerPageOptions.map(opt => (
                                 <option key={opt} value={opt}>{opt}</option>
                             ))}
-                        </select>
+                        </BrandSelect>
                         <span className="text-slate-500 dark:text-slate-400 font-medium">per page</span>
                     </div>
                 )}
@@ -101,7 +103,10 @@ export const Pagination: React.FC<PaginationProps> = ({
                         ) : (
                             <button
                                 key={page}
+                                type="button"
                                 onClick={() => onPageChange(page as number)}
+                                aria-label={`Page ${page}`}
+                                aria-current={currentPage === page ? 'page' : undefined}
                                 className={`min-w-[36px] h-9 rounded-lg text-sm font-bold transition-colors
                                     ${currentPage === page
                                         ? 'bg-primary text-white shadow-md shadow-primary/30'

@@ -28,6 +28,15 @@ export const PartnerLayout: React.FC = () => {
     }
   }, [isLoading, isAuthenticated, navigate]);
 
+  useEffect(() => {
+    if (!isSidebarOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsSidebarOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isSidebarOpen]);
+
   const handleLogout = () => {
     logout();
     navigate('/partner/login', { replace: true });
@@ -54,7 +63,7 @@ export const PartnerLayout: React.FC = () => {
   const initials = partner.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'PP';
 
   return (
-    <div className="min-h-screen flex bg-slate-950 relative text-white font-sans overflow-hidden">
+    <div className="min-h-screen flex bg-slate-950 relative text-white font-sans overflow-x-hidden">
       {/* Dynamic Background Glows */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-violet-600/20 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-600/20 blur-[120px] pointer-events-none" />
@@ -65,7 +74,9 @@ export const PartnerLayout: React.FC = () => {
       )}
 
       {/* Sidebar */}
-      <aside className={`
+      <aside
+        aria-label="Partner Sidebar Navigation"
+        className={`
         fixed lg:sticky lg:top-0 lg:h-screen inset-y-0 left-0 w-[280px]
         bg-white/5 backdrop-blur-xl border-r border-white/10
         transform transition-transform duration-300 z-[110] flex flex-col shrink-0
@@ -82,7 +93,7 @@ export const PartnerLayout: React.FC = () => {
               <span className="text-[10px] font-bold text-violet-400 uppercase tracking-[0.2em]">Travel Associate Portal</span>
             </div>
           </Link>
-          <button className="lg:hidden text-white/60 hover:text-white" onClick={() => setIsSidebarOpen(false)}>
+          <button type="button" aria-label="Close navigation sidebar" className="lg:hidden text-white/60 hover:text-white p-1.5 rounded-lg" onClick={() => setIsSidebarOpen(false)}>
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
@@ -170,7 +181,7 @@ export const PartnerLayout: React.FC = () => {
       <div className="flex-1 flex flex-col min-h-screen overflow-y-auto">
         {/* Header */}
         <header className="h-16 flex items-center justify-between px-6 border-b border-white/10 bg-slate-900/60 backdrop-blur-xl sticky top-0 z-20 shrink-0">
-          <button className="lg:hidden text-white/60 hover:text-white" onClick={() => setIsSidebarOpen(true)}>
+          <button type="button" aria-label="Open navigation sidebar" className="lg:hidden text-white/60 hover:text-white p-1.5 rounded-lg" onClick={() => setIsSidebarOpen(true)}>
             <span className="material-symbols-outlined text-2xl">menu</span>
           </button>
           <div className="flex items-center gap-2 lg:hidden">

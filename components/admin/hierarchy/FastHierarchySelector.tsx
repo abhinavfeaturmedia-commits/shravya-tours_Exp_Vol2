@@ -22,6 +22,7 @@ import {
 import { HIERARCHY_TIERS } from './hierarchyConstants';
 import { ShrawelloOrgChart } from './ShrawelloOrgChart';
 import { validateManagerSelection } from './shrawelloOrgBlueprint';
+import BrandSelect from '../../ui/BrandSelect';
 
 export interface FastHierarchySelectorProps {
   staff: StaffMember[];
@@ -335,7 +336,7 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
               <ExternalLink size={10} />
             </Link>
           </label>
-          <select
+          <BrandSelect
             value={formData.designationId || ''}
             onChange={e => {
               const val = e.target.value.trim();
@@ -364,7 +365,7 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
                 [{desig.grade_level}] {desig.name} {desig.department_name ? `(${desig.department_name})` : ''}
               </option>
             ))}
-          </select>
+          </BrandSelect>
           {activeDesignation && (
             <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 flex items-center gap-1">
               <CheckCircle2 size={11} /> Auto-synced Grade to [{activeDesignation.grade_level}] &amp; Role to &ldquo;{activeDesignation.name}&rdquo;
@@ -378,7 +379,7 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
             <MapPin size={14} className="text-indigo-500" />
             Office Branch / Base Location
           </label>
-          <select
+          <BrandSelect
             value={formData.branchId || ''}
             onChange={e => {
               const val = e.target.value.trim();
@@ -392,7 +393,7 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
                 {b.name} ({b.city}{b.state ? `, ${b.state}` : ''})
               </option>
             ))}
-          </select>
+          </BrandSelect>
           <p className="text-[10px] text-slate-400 mt-1">Assigns regional reporting and attendance perimeter.</p>
         </div>
       </div>

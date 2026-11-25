@@ -7,6 +7,8 @@ import { TourSelectorModal } from './TourSelectorModal';
 import { OptimizedImage } from '../ui/OptimizedImage';
 import { useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
+import { BrandSelect } from '../ui/BrandSelect';
+import { BrandDatePicker } from '../ui/BrandDatePicker';
 
 // Validation schema
 const tourBookingSchema = z.object({
@@ -320,30 +322,26 @@ export const TourBookingForm: React.FC<TourBookingFormProps> = ({ onSubmit }) =>
                 Select Package Variant:
               </label>
               
-              <div className="relative">
-                <select
-                  value={selectedPackageId}
-                  onChange={(e) => {
-                    const pkgId = e.target.value;
-                    setSelectedPackageId(pkgId);
-                    const pkg = TOUR_PACKAGES.find(p => p.id === pkgId);
-                    if (pkg) {
-                      setValue('selectedPackageName', pkg.name);
-                      setValue('destination', pkg.destination);
-                    }
-                  }}
-                  className="w-full pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-extrabold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 appearance-none"
-                >
-                  {availablePackages.map((pkg) => (
-                    <option key={pkg.id} value={pkg.id}>
-                      {pkg.name} ({pkg.duration} - ₹{pkg.startingPrice.toLocaleString('en-IN')})
-                    </option>
-                  ))}
-                </select>
-                <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-base">
-                  expand_more
-                </span>
-              </div>
+              <BrandSelect
+                value={selectedPackageId}
+                labelText="Select Package Variant"
+                onChange={(e) => {
+                  const pkgId = e.target.value;
+                  setSelectedPackageId(pkgId);
+                  const pkg = TOUR_PACKAGES.find(p => p.id === pkgId);
+                  if (pkg) {
+                    setValue('selectedPackageName', pkg.name);
+                    setValue('destination', pkg.destination);
+                  }
+                }}
+                className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-extrabold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500"
+              >
+                {availablePackages.map((pkg) => (
+                  <option key={pkg.id} value={pkg.id}>
+                    {pkg.name} ({pkg.duration} - ₹{pkg.startingPrice.toLocaleString('en-IN')})
+                  </option>
+                ))}
+              </BrandSelect>
 
               <button
                 type="button"
@@ -404,16 +402,15 @@ export const TourBookingForm: React.FC<TourBookingFormProps> = ({ onSubmit }) =>
             <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 block pl-1">
               TRAVEL DATE
             </label>
-            <div className="relative">
-              <input
-                {...register('startDate')}
-                type="date"
-                min={today}
-                className={`w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500/50 transition-all ${
-                  errors.startDate ? 'border-red-400' : 'border-transparent'
-                }`}
-              />
-            </div>
+            <BrandDatePicker
+              {...register('startDate')}
+              min={today}
+              labelText="Travel Date"
+              placeholder="Select date"
+              className={`w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 border-2 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500/50 transition-all ${
+                errors.startDate ? 'border-red-400' : 'border-transparent'
+              }`}
+            />
             {errors.startDate && <p className="text-red-500 text-[10px] mt-1 pl-1">{errors.startDate.message}</p>}
           </div>
 
@@ -422,18 +419,17 @@ export const TourBookingForm: React.FC<TourBookingFormProps> = ({ onSubmit }) =>
             <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 block pl-1">
               TRAVELLERS & ROOMS
             </label>
-            <div className="relative">
-              <select
-                {...register('adults', { valueAsNumber: true })}
-                className="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 border-2 border-transparent rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500/50"
-              >
-                <option value={1}>1 Adult, 1 Room</option>
-                <option value={2}>2 Adults, 1 Room</option>
-                <option value={4}>4 Adults, 2 Rooms</option>
-                <option value={6}>6 Adults, 3 Rooms</option>
-                <option value={8}>8+ Group Tour</option>
-              </select>
-            </div>
+            <BrandSelect
+              {...register('adults', { valueAsNumber: true })}
+              labelText="Travellers & Rooms"
+              className="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 border-2 border-transparent rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500/50"
+            >
+              <option value={1}>1 Adult, 1 Room</option>
+              <option value={2}>2 Adults, 1 Room</option>
+              <option value={4}>4 Adults, 2 Rooms</option>
+              <option value={6}>6 Adults, 3 Rooms</option>
+              <option value={8}>8+ Group Tour</option>
+            </BrandSelect>
           </div>
 
           {/* Hotel Star Rating */}
@@ -441,14 +437,15 @@ export const TourBookingForm: React.FC<TourBookingFormProps> = ({ onSubmit }) =>
             <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1 block pl-1">
               HOTEL CATEGORY
             </label>
-            <select
+            <BrandSelect
               {...register('hotelClass')}
+              labelText="Hotel Category"
               className="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-800 border-2 border-transparent rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500/50"
             >
               <option value="3-Star">3★ Standard</option>
               <option value="4-Star">4★ Deluxe</option>
               <option value="5-Star">5★ Luxury</option>
-            </select>
+            </BrandSelect>
           </div>
 
         </div>

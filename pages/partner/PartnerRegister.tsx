@@ -207,18 +207,18 @@ export const PartnerRegister: React.FC = () => {
 
       {/* Terms Preview Modal */}
       {showTermsPreview && (
-        <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-slate-900 border border-white/10 rounded-3xl shadow-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div role="dialog" aria-modal="true" aria-label="Travel Associate Policy and Terms" className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setShowTermsPreview(false)}>
+          <div className="w-full max-w-xl bg-slate-900 border border-white/10 rounded-3xl shadow-2xl flex flex-col" style={{ maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
             <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-white/10">
               <div>
                 <p className="text-[10px] text-violet-400 font-bold uppercase tracking-widest">SHRAWELLO Travel Hub & Events LLP</p>
                 <h3 className="text-base font-black text-white">Travel Associate Policy & Terms</h3>
               </div>
-              <button onClick={() => setShowTermsPreview(false)} className="text-white/40 hover:text-white transition-colors">
+              <button type="button" aria-label="Close policy preview" onClick={() => setShowTermsPreview(false)} className="text-white/40 hover:text-white transition-colors p-1 rounded-lg">
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto px-6 py-5 text-sm text-white/70 space-y-4 leading-relaxed">
+            <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-5 text-sm text-white/70 space-y-4 leading-relaxed">
               <p><strong className="text-white">About SHRAWELLO:</strong> SHRAWELLO Travel Hub & Events LLP provides tours, travel, transport, corporate travel, hotel, flight, rail and event services across India.</p>
               <p><strong className="text-white">Travel Associate:</strong> An independent referral associate — not an employee, partner, franchisee or agent.</p>
               <p><strong className="text-white">Eligibility:</strong> Age 18+, valid Aadhar & PAN, bank account, mandatory policy acceptance.</p>

@@ -5,6 +5,7 @@ import { TOUR_PACKAGES, TourPackage } from '../constants/tourCatalog';
 import { LeadCaptureModal } from '../components/ui/LeadCaptureModal';
 import { SEO } from '../components/ui/SEO';
 import { ThinkingOrb } from 'thinking-orbs';
+import { toast } from 'sonner';
 
 export const BlogPostDetail: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -238,7 +239,7 @@ export const BlogPostDetail: React.FC = () => {
                   navigator.share({ title: post.title, url: window.location.href });
                 } else {
                   navigator.clipboard.writeText(window.location.href);
-                  alert('Article link copied to clipboard!');
+                  toast.success('Article link copied to clipboard!');
                 }
               }}
               className="px-3.5 py-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 text-xs font-bold flex items-center gap-1.5 shadow-md transition-colors"

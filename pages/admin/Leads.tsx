@@ -23,11 +23,14 @@ import { formatPrice, formatPriceCompact } from '../../utils/packageUtils';
 import { exportToExcel, ExportColumn } from '../../src/lib/exportUtils';
 import { DataImportModal, ColumnMapping } from '../../src/components/admin/DataImportModal';
 import { SendEmailModal } from '../../components/admin/SendEmailModal';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 import { normalisePhone } from '../../utils/phoneUtils';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
 import { BorderBeam } from 'border-beam';
 import { VoiceBeam, useMicrophone } from 'voice-glow';
 import { TripFormShareButton } from '../../components/admin/TripFormShareButton';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
 import { TripDetailsRequirementsCard } from '../../components/admin/TripDetailsRequirementsCard';
 // import { BulkImportLeadsModal } from '../../components/admin/BulkImportLeadsModal'; // Commented out unused
 
@@ -647,15 +650,16 @@ export const Leads: React.FC = () => {
         toast.success('Log updated successfully');
     };
 
-    const handleDeleteLog = (logId: string) => {
+    const handleDeleteLog = async (logId: string) => {
         if (!selectedLeadId) return;
-        if (confirm('Are you sure you want to delete this log?')) {
+        const ok = await confirmAction({ title: 'Delete Log', message: 'Are you sure you want to delete this log?', confirmLabel: 'Delete', tone: 'danger' });
+        if (ok) {
             deleteLeadLog(logId);
             toast.success('Log deleted');
         }
     };
 
-    const handleFormSubmit = (e: React.FormEvent) => {
+    const handleFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         // 1. Date Validation
@@ -693,7 +697,13 @@ export const Leads: React.FC = () => {
                     ? "\n\n💡 Tip: Open \"" + relatedCustomer.name + "\" in the Customers tab and use \"New Inquiry\" to keep their full history linked."
                     : '';
 
-                if (!confirm("⚠️ A lead already exists for this contact (" + leadRef + ").\nStatus: " + duplicateLead.status + tip + "\n\nCreate a separate lead anyway?")) {
+                const ok = await confirmAction({
+                    title: 'Duplicate Contact Detected',
+                    message: `A lead already exists for this contact (${leadRef}).\nStatus: ${duplicateLead.status}${tip}\n\nCreate a separate lead anyway?`,
+                    confirmLabel: 'Create Anyway',
+                    tone: 'warning',
+                });
+                if (!ok) {
                     return;
                 }
             }
@@ -753,15 +763,23 @@ export const Leads: React.FC = () => {
         setIsModalOpen(false);
     };
 
-    const handleDeleteLead = () => {
+    const handleDeleteLead = async () => {
         if (!canAccess('leads', 'delete_lead')) {
             toast.error('Permission Denied: You do not have permission to delete leads.');
             return;
         }
-        if (selectedLeadId && confirm('Are you sure you want to delete this lead? This action cannot be undone.')) {
-            deleteLead(selectedLeadId);
-            setSelectedLeadId(null);
-            toast.success('Lead deleted');
+        if (selectedLeadId) {
+            const ok = await confirmAction({
+                title: 'Delete Lead',
+                message: 'Are you sure you want to delete this lead? This action cannot be undone.',
+                confirmLabel: 'Delete',
+                tone: 'danger',
+            });
+            if (ok) {
+                deleteLead(selectedLeadId);
+                setSelectedLeadId(null);
+                toast.success('Lead deleted');
+            }
         }
     };
 
@@ -770,7 +788,13 @@ export const Leads: React.FC = () => {
 
         // Guard against accidental double conversion
         if (selectedLead.status === 'Converted' || selectedLead.convertedBookingId) {
-            if (!confirm(`⚠️ This lead was already converted to a booking${selectedLead.convertedBookingId ? ` (ID: ${selectedLead.convertedBookingId})` : ''}.\n\nAre you sure you want to create ANOTHER booking for it?`)) {
+            const ok = await confirmAction({
+                title: 'Already Converted Lead',
+                message: `This lead was already converted to a booking${selectedLead.convertedBookingId ? ` (ID: ${selectedLead.convertedBookingId})` : ''}.\n\nAre you sure you want to create ANOTHER booking for it?`,
+                confirmLabel: 'Create Another Booking',
+                tone: 'warning',
+            });
+            if (!ok) {
                 return;
             }
         }
@@ -1129,7 +1153,8 @@ export const Leads: React.FC = () => {
 
     // Fix #7: Delete task
     const handleDeleteLeadTask = async (taskId: string) => {
-        if (!confirm('Delete this task? This cannot be undone.')) return;
+        const ok = await confirmAction({ title: 'Delete Task', message: 'Delete this task? This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         try {
             await deleteTask(taskId);
             window.dispatchEvent(new CustomEvent('tasks-changed'));
@@ -1176,7 +1201,8 @@ export const Leads: React.FC = () => {
     const handleClearCompleted = async () => {
         const completed = leadChecklist.filter(t => t.status === 'Completed');
         if (!completed.length) return;
-        if (!confirm(`Delete ${completed.length} completed task(s)?`)) return;
+        const ok = await confirmAction({ title: 'Clear Completed Tasks', message: `Delete ${completed.length} completed task(s)?`, confirmLabel: 'Delete All', tone: 'danger' });
+        if (!ok) return;
         for (const task of completed) {
             try { await deleteTask(task.id); } catch {}
         }
@@ -1445,7 +1471,13 @@ export const Leads: React.FC = () => {
                                                                 <button
                                                                     onClick={async (e) => {
                                                                         e.stopPropagation();
-                                                                        if (confirm(`Mark follow-up for ${task.leadName || 'Unknown'} as Done?`)) {
+                                                                        const ok = await confirmAction({
+                                                                            title: 'Complete Follow-Up',
+                                                                            message: `Mark follow-up for ${task.leadName || 'Unknown'} as Done?`,
+                                                                            confirmLabel: 'Mark Done',
+                                                                            tone: 'primary',
+                                                                        });
+                                                                        if (ok) {
                                                                             try {
                                                                                 await updateFollowUp(task.id, { 
                                                                                     status: 'Done', 
@@ -1472,7 +1504,13 @@ export const Leads: React.FC = () => {
                                                                 <button
                                                                     onClick={async (e) => {
                                                                         e.stopPropagation();
-                                                                        if (confirm(`Cancel follow-up for ${task.leadName || 'Unknown'}?`)) {
+                                                                        const ok = await confirmAction({
+                                                                            title: 'Cancel Follow-Up',
+                                                                            message: `Cancel follow-up for ${task.leadName || 'Unknown'}?`,
+                                                                            confirmLabel: 'Cancel Follow-Up',
+                                                                            tone: 'danger',
+                                                                        });
+                                                                        if (ok) {
                                                                             try {
                                                                                 await updateFollowUp(task.id, { status: 'Cancelled' });
                                                                                 await addLeadLog(task.leadId, {
@@ -1819,11 +1857,12 @@ export const Leads: React.FC = () => {
                     <div className="h-4 w-px bg-slate-700" />
                     
                     {/* Bulk Assign Staff Dropdown */}
-                    <select
+                    <BrandSelect
+                        tone="dark"
+                        value=""
                         onChange={e => {
                             if (e.target.value) {
                                 handleBulkAssign(e.target.value);
-                                e.target.value = '';
                             }
                         }}
                         className="bg-slate-800 dark:bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-200 outline-none cursor-pointer hover:border-slate-500 transition-colors"
@@ -1832,14 +1871,15 @@ export const Leads: React.FC = () => {
                         {staff.map(s => (
                             <option key={s.id} value={s.id}>{s.name}</option>
                         ))}
-                    </select>
+                    </BrandSelect>
 
                     {/* Bulk Stage Change Dropdown */}
-                    <select
+                    <BrandSelect
+                        tone="dark"
+                        value=""
                         onChange={e => {
                             if (e.target.value) {
                                 handleBulkStatusChange(e.target.value);
-                                e.target.value = '';
                             }
                         }}
                         className="bg-slate-800 dark:bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-200 outline-none cursor-pointer hover:border-slate-500 transition-colors"
@@ -1848,7 +1888,7 @@ export const Leads: React.FC = () => {
                         {['New', 'Warm', 'Hot', 'Offer Sent', 'Cold'].map(s => (
                             <option key={s} value={s}>{s}</option>
                         ))}
-                    </select>
+                    </BrandSelect>
 
                     {/* Bulk Export Button */}
                     <button
@@ -2320,7 +2360,7 @@ export const Leads: React.FC = () => {
                                         </div>
                                         <div className="flex gap-2 w-full sm:w-auto">
                                             {/* Fix #24: Dynamic playbook keys from backend */}
-                                            <select
+                                            <BrandSelect
                                                 value={selectedPredefinedPlaybookStatus}
                                                 onChange={e => setSelectedPredefinedPlaybookStatus(e.target.value)}
                                                 className="flex-1 sm:flex-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none w-full sm:w-44"
@@ -2335,7 +2375,7 @@ export const Leads: React.FC = () => {
                                                         <option key={t} value={t}>{t === 'Car' ? 'Cab (Car)' : t} Playbook</option>
                                                     ))}
                                                 </optgroup>
-                                            </select>
+                                            </BrandSelect>
                                             <button
                                                 onClick={handleGeneratePlaybook}
                                                 className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-xs font-bold shadow-sm transition-all"
@@ -2433,15 +2473,14 @@ export const Leads: React.FC = () => {
                                                         <div className="shrink-0 flex flex-col items-end gap-1.5">
                                                             {/* Fix #12: Reassign dropdown */}
                                                             {reassigningTaskId === task.id ? (
-                                                                <select
-                                                                    autoFocus
+                                                                <BrandSelect
                                                                     defaultValue={String(task.assignedTo)}
                                                                     onChange={e => handleReassignTask(task.id, e.target.value)}
                                                                     onBlur={() => setReassigningTaskId(null)}
-                                                                    className="text-[9px] font-bold bg-white dark:bg-slate-800 border border-primary/40 rounded-lg px-2 py-1 outline-none max-w-[100px]"
+                                                                    className="text-[9px] font-bold bg-white dark:bg-slate-800 border border-primary/40 rounded-lg px-2 py-1 outline-none max-w-[120px]"
                                                                 >
                                                                     {staff.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
-                                                                </select>
+                                                                </BrandSelect>
                                                             ) : (
                                                                 <button
                                                                     onClick={() => setReassigningTaskId(task.id)}
@@ -2523,30 +2562,30 @@ export const Leads: React.FC = () => {
                                                         className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary/20"
                                                         required
                                                     />
-                                                    <input
+                                                    <BrandDatePicker
                                                         type="date"
                                                         value={manualTaskDueDate}
                                                         onChange={e => setManualTaskDueDate(e.target.value)}
-                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20 w-full sm:w-36"
+                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20 w-full sm:w-40"
                                                     />
                                                 </div>
                                                 {/* Fix #13: Priority + Assignee */}
                                                 <div className="flex gap-2">
-                                                    <select
+                                                    <BrandSelect
                                                         value={manualTaskPriority}
                                                         onChange={e => setManualTaskPriority(e.target.value as any)}
                                                         className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold outline-none"
                                                     >
                                                         {['Low','Medium','High','Urgent'].map(p => <option key={p} value={p}>{p} Priority</option>)}
-                                                    </select>
-                                                    <select
+                                                    </BrandSelect>
+                                                    <BrandSelect
                                                         value={manualTaskAssignee}
                                                         onChange={e => setManualTaskAssignee(e.target.value)}
                                                         className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold outline-none"
                                                     >
                                                         <option value="">Assign to...</option>
                                                         {staff.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
                                                 <button
                                                     type="submit"
@@ -2895,32 +2934,32 @@ export const Leads: React.FC = () => {
                                                     </label>
                                                 </div>
                                                 {isReminderSet && (
-                                                    <select
+                                                    <BrandSelect
                                                         value={followUpType}
                                                         onChange={(e) => setFollowUpType(e.target.value as FollowUpType)}
                                                         className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 outline-none"
                                                     >
                                                         {['Call', 'Email', 'WhatsApp', 'Meeting'].map(t => <option key={t} value={t}>{t}</option>)}
-                                                    </select>
+                                                    </BrandSelect>
                                                 )}
                                             </div>
                                             {isReminderSet && (
                                                 <div className="flex gap-2 w-full">
-                                                    <input
+                                                    <BrandDatePicker
                                                         type="datetime-local"
                                                         value={reminderDate}
                                                         onChange={(e) => setReminderDate(e.target.value)}
                                                         className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none flex-1"
                                                     />
-                                                    <select
+                                                    <BrandSelect
                                                         value={followUpPriority}
                                                         onChange={(e) => setFollowUpPriority(e.target.value as any)}
-                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none w-28"
+                                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-300 outline-none w-32"
                                                     >
                                                         <option value="High">High Priority</option>
                                                         <option value="Medium">Med Priority</option>
                                                         <option value="Low">Low Priority</option>
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
                                             )}
                                             <div className="flex justify-end">
@@ -3089,9 +3128,9 @@ export const Leads: React.FC = () => {
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Trip Type</label>
-                                    <select value={leadForm.type || 'Tour'} onChange={e => setLeadForm({ ...leadForm, type: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
+                                    <BrandSelect value={leadForm.type || 'Tour'} onChange={e => setLeadForm({ ...leadForm, type: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary">
                                         {['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight', 'Custom Package'].map(t => <option key={t} value={t}>{t}</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <div className="flex items-center justify-between mb-1">
@@ -3102,7 +3141,7 @@ export const Leads: React.FC = () => {
                                             </span>
                                         )}
                                     </div>
-                                    <select 
+                                    <BrandSelect 
                                         value={leadForm.status} 
                                         disabled={isFormLeadLocked}
                                         onChange={e => setLeadForm({ ...leadForm, status: e.target.value as any })} 
@@ -3113,7 +3152,7 @@ export const Leads: React.FC = () => {
                                         }`}
                                     >
                                         {['New', 'Warm', 'Hot', 'Cold', 'Offer Sent', 'Converted'].map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
+                                    </BrandSelect>
                                     {isFormLeadLocked && formLinkedBooking && (
                                         <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1 font-semibold flex items-center gap-1">
                                             <Lock size={11} className="shrink-0" />
@@ -3169,11 +3208,11 @@ export const Leads: React.FC = () => {
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Start Date</label>
-                                    <input type="date" value={leadForm.startDate || ''} onChange={e => setLeadForm({ ...leadForm, startDate: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                    <BrandDatePicker type="date" value={leadForm.startDate || ''} onChange={e => setLeadForm({ ...leadForm, startDate: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">End Date</label>
-                                    <input type="date" value={leadForm.endDate || ''} onChange={e => setLeadForm({ ...leadForm, endDate: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
+                                    <BrandDatePicker type="date" value={leadForm.endDate || ''} onChange={e => setLeadForm({ ...leadForm, endDate: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-primary" />
                                 </div>
                             </div>
                             <button type="submit" className="w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all mt-2">

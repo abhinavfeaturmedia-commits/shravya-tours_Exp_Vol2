@@ -10,6 +10,9 @@ import { getLocationName } from '../../utils/packageUtils';
 import { copyToClipboard } from '../../utils/clipboard';
 import { toast } from '../../components/ui/Toast';
 import { api } from '../../src/lib/api';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 // Extracted Component with React.memo to prevent unnecessary re-renders of the entire list when Edit Modal opens
 const PackageCard = React.memo(({
@@ -438,8 +441,14 @@ export const AdminPackages: React.FC = () => {
         toast.success(`Package marked as ${newStatus === 'Active' ? 'Active' : 'Hidden'}`);
     }, [updatePackage]);
 
-    const handleDelete = useCallback((id: string) => {
-        if (confirm('Are you sure you want to delete this package? Associated bookings will remain but linkage might break.')) {
+    const handleDelete = useCallback(async (id: string) => {
+        const ok = await confirmAction({
+            title: 'Delete Package',
+            message: 'Are you sure you want to delete this package? Associated bookings will remain but linkage might break.',
+            confirmLabel: 'Delete',
+            tone: 'danger',
+        });
+        if (ok) {
             deletePackage(id);
             toast.success('Package deleted');
         }
@@ -450,7 +459,7 @@ export const AdminPackages: React.FC = () => {
     }, [navigate]);
 
     const handleCopyLink = useCallback((id: string) => {
-        const url = `${window.location.origin}/#/packages/${id}`;
+        const url = `${window.location.origin}/packages/${id}`;
         copyToClipboard(url).then(success => {
             if (success) {
                 toast.success('Web Link copied to clipboard!');
@@ -527,12 +536,12 @@ export const AdminPackages: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Location</label>
-                                        <select required value={editForm.location} onChange={e => setEditForm({ ...editForm, location: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect required value={editForm.location} onChange={e => setEditForm({ ...editForm, location: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value="">Select a Location</option>
                                             {masterLocations.map(loc => (
                                                 <option key={loc.id} value={loc.id}>{loc.name}</option>
                                             ))}
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Price (₹)</label>
@@ -540,10 +549,10 @@ export const AdminPackages: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Pricing Mode</label>
-                                        <select required value={editForm.pricingMode} onChange={e => setEditForm({ ...editForm, pricingMode: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect required value={editForm.pricingMode} onChange={e => setEditForm({ ...editForm, pricingMode: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value="group">Group/Package Price</option>
                                             <option value="per_person">Per Person Price</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
@@ -568,30 +577,30 @@ export const AdminPackages: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Theme (Collection)</label>
-                                        <select value={editForm.theme} onChange={e => setEditForm({ ...editForm, theme: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect value={editForm.theme} onChange={e => setEditForm({ ...editForm, theme: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value="">Select a Collection</option>
                                             {cmsGallery.map(item => (
                                                 <option key={item.id} value={item.title}>{item.title}</option>
                                             ))}
                                             <option value="Other">Other</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Badge Color Class</label>
-                                        <select value={editForm.tagColor} onChange={e => setEditForm({ ...editForm, tagColor: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect value={editForm.tagColor} onChange={e => setEditForm({ ...editForm, tagColor: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value="bg-blue-500 text-white">Blue</option>
                                             <option value="bg-green-500 text-white">Green</option>
                                             <option value="bg-red-500 text-white">Red</option>
                                             <option value="bg-yellow-400 text-yellow-900">Yellow</option>
                                             <option value="bg-purple-500 text-white">Purple</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Status</label>
-                                        <select value={editForm.status} onChange={e => setEditForm({ ...editForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect value={editForm.status} onChange={e => setEditForm({ ...editForm, status: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value="Active">Active (Visible on Website)</option>
                                             <option value="Inactive">Inactive (Hidden from Website)</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                 </div>
                             </div>
@@ -628,7 +637,7 @@ export const AdminPackages: React.FC = () => {
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Offer End Date &amp; Time</label>
-                                        <input value={editForm.offerEndTime} onChange={e => setEditForm({ ...editForm, offerEndTime: e.target.value })} type="datetime-local" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                        <BrandDatePicker value={editForm.offerEndTime} onChange={e => setEditForm({ ...editForm, offerEndTime: e.target.value })} type="datetime-local" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
                                     </div>
                                 </div>
                             </div>
@@ -639,10 +648,10 @@ export const AdminPackages: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Override Type</label>
-                                        <select value={editForm.partnerCommissionType} onChange={e => setEditForm({ ...editForm, partnerCommissionType: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                                        <BrandSelect value={editForm.partnerCommissionType} onChange={e => setEditForm({ ...editForm, partnerCommissionType: e.target.value as any })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
                                             <option value="Percentage">Percentage (%)</option>
                                             <option value="Flat_Amount">Flat Amount (₹)</option>
-                                        </select>
+                                        </BrandSelect>
                                     </div>
                                     <div>
                                         <label className="text-xs font-bold text-slate-500 mb-1 block">Override Value (leave blank for partner default)</label>

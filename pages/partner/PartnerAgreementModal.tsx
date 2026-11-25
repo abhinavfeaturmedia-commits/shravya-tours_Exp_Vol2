@@ -109,6 +109,9 @@ export const PartnerAgreementModal: React.FC = () => {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Travel Associate Policy and Terms Agreement"
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
       style={{ animation: 'fadeIn 0.3s ease' }}
     >

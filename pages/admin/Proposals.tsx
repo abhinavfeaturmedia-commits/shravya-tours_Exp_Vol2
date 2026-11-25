@@ -8,6 +8,7 @@ import {
 import { toast } from 'sonner';
 import { SendEmailModal } from '../../components/admin/SendEmailModal';
 import { generateProposalPDF } from '../../utils/pdfGenerator';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
 
 export const Proposals: React.FC = () => {
     const { proposals, deleteProposal, leads, addProposal, masterHotels, masterActivities } = useData();
@@ -30,8 +31,14 @@ export const Proposals: React.FC = () => {
         return matchesSearch && matchesStatus;
     });
 
-    const handleDelete = (id: string) => {
-        if (confirm('Are you sure you want to delete this proposal?')) {
+    const handleDelete = async (id: string) => {
+        const ok = await confirmAction({
+            title: 'Delete Proposal',
+            message: 'Are you sure you want to delete this proposal?',
+            confirmLabel: 'Delete',
+            tone: 'danger',
+        });
+        if (ok) {
             deleteProposal(id);
         }
     };
@@ -45,9 +52,9 @@ export const Proposals: React.FC = () => {
             {/* Header */}
             <div className="bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-10">
                 <div>
-                    <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2 font-display text-3xl">
+                    <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-2 font-display">
                         <FileText className="text-purple-600" /> Proposals & Quotations
-                    </h2>
+                    </h1>
                     <p className="text-slate-500 dark:text-slate-400 text-sm">Manage quotations, multi-tier packages, and client revisions.</p>
                 </div>
                 <button

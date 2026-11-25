@@ -117,7 +117,9 @@ export const PartnerProfile: React.FC = () => {
                 {partner.status}
               </span>
               <span className="text-[11px] text-white/40">
-                Joined {new Date(partner.joinedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+                {partner.joinedDate && !isNaN(new Date(partner.joinedDate).getTime())
+                  ? `Joined ${new Date(partner.joinedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}`
+                  : 'Verified Associate'}
               </span>
             </div>
           </div>

@@ -8,6 +8,9 @@ import { api } from '../../../src/lib/api';
 import { generateInclusionsExclusions } from '../../../src/lib/gemini';
 import { PdfItineraryImportModal } from '../modals/PdfItineraryImportModal';
 import { toast } from 'sonner';
+import { confirmAction } from '../../ui/ConfirmDialog';
+import BrandSelect from '../../ui/BrandSelect';
+import BrandDatePicker from '../../ui/BrandDatePicker';
 
 // Helper to convert HTML templates from Masters to clean, formatted plain text with bullets
 function cleanHtmlToPlainText(html: string): string {
@@ -606,12 +609,18 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                     <button
                                         type="button"
                                         disabled={(tripDetails.days || 1) <= 1}
-                                        onClick={() => {
+                                        onClick={async () => {
                                             const lastDay = tripDetails.days || 1;
                                             if (lastDay <= 1) return;
                                             const lastDayItems = items.filter(i => i.day === lastDay);
-                                            if (lastDayItems.length > 0 && !window.confirm(`Day ${lastDay} has ${lastDayItems.length} scheduled item(s). Remove Day ${lastDay}?`)) {
-                                                return;
+                                            if (lastDayItems.length > 0) {
+                                                const ok = await confirmAction({
+                                                    title: `Remove Day ${lastDay}`,
+                                                    message: `Day ${lastDay} has ${lastDayItems.length} scheduled item(s). Remove Day ${lastDay}?`,
+                                                    confirmLabel: 'Remove Day',
+                                                    tone: 'danger',
+                                                });
+                                                if (!ok) return;
                                             }
                                             removeDay(lastDay);
                                             toast.info(`Removed Day ${lastDay}`);
@@ -656,7 +665,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                 <label className="text-[10px] font-black uppercase tracking-wider text-stone-500 flex items-center gap-1.5">
                                     <Calendar size={12} className="text-indigo-500" /> Start Date *
                                 </label>
-                                <input
+                                <BrandDatePicker
                                     type="date"
                                     value={tripDetails.startDate || ''}
                                     onChange={e => updateTripDetails({ startDate: e.target.value })}
@@ -1026,8 +1035,14 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                 {hasTerms && (
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            if (window.confirm("Are you sure you want to clear all terms and conditions for this package?")) {
+                                        onClick={async () => {
+                                            const ok = await confirmAction({
+                                                title: 'Clear Terms & Conditions',
+                                                message: 'Are you sure you want to clear all terms and conditions for this package?',
+                                                confirmLabel: 'Clear Terms',
+                                                tone: 'danger',
+                                            });
+                                            if (ok) {
                                                 updateTripDetails({ termsAndConditions: '' });
                                                 toast.info("Terms cleared");
                                             }
@@ -1049,7 +1064,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                         <Layers size={11} /> Quick-Toggle Master Policies
                                     </span>
                                     <a
-                                        href="#/admin/masters?tab=terms"
+                                        href="/admin/masters?tab=terms"
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-[11px] text-amber-600 hover:text-amber-700 font-semibold flex items-center gap-1 hover:underline"
@@ -1428,7 +1443,7 @@ export const StepTripDetails: React.FC<Props> = ({ onDone }) => {
                                     <FileText size={32} className="mx-auto text-stone-300" />
                                     <p className="text-xs text-stone-500 font-bold">No Terms & Conditions templates found in Masters.</p>
                                     <a
-                                        href="#/admin/masters?tab=terms"
+                                        href="/admin/masters?tab=terms"
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors"
@@ -1713,7 +1728,7 @@ const QuickAddLocationModal: React.FC<{
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-xs font-bold text-stone-700 mb-1">Type</label>
-                            <select
+                            <BrandSelect
                                 value={type}
                                 onChange={e => setType(e.target.value as MasterLocationType)}
                                 className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 py-2.5 text-xs font-bold text-stone-900 focus:ring-2 focus:ring-amber-400 outline-none"
@@ -1721,7 +1736,7 @@ const QuickAddLocationModal: React.FC<{
                                 <option value="City">City</option>
                                 <option value="State">State</option>
                                 <option value="Country">Country</option>
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-stone-700 mb-1">Region / State</label>

@@ -6,6 +6,9 @@ import {
     Car, User, Settings, DollarSign, Layers, Activity,
     FileText, Check, X, Search, Star, Plus, Edit, Trash2, Calendar
 } from 'lucide-react';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 
 export const CarRentalManager: React.FC = () => {
     const { vendors, customers, leads } = useData();
@@ -172,7 +175,8 @@ export const CarRentalManager: React.FC = () => {
     };
 
     const handleDeleteCategory = async (id: string) => {
-        if (!confirm('Delete this category?')) return;
+        const ok = await confirmAction({ title: 'Delete Category', message: 'Delete this category?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         try {
             await api.deleteVehicleCategory(id);
             toast.success('Category deleted');
@@ -200,7 +204,8 @@ export const CarRentalManager: React.FC = () => {
     };
 
     const handleDeleteVehicle = async (id: string) => {
-        if (!confirm('Permanently remove this vehicle?')) return;
+        const ok = await confirmAction({ title: 'Remove Vehicle', message: 'Permanently remove this vehicle?', confirmLabel: 'Remove', tone: 'danger' });
+        if (!ok) return;
         try {
             await api.deleteVehicle(id);
             toast.success('Vehicle removed');
@@ -228,7 +233,8 @@ export const CarRentalManager: React.FC = () => {
     };
 
     const handleDeleteDriver = async (id: string) => {
-        if (!confirm('Permanently delete driver record?')) return;
+        const ok = await confirmAction({ title: 'Delete Driver', message: 'Permanently delete driver record?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         try {
             await api.deleteDriver(id);
             toast.success('Driver deleted');
@@ -273,7 +279,8 @@ export const CarRentalManager: React.FC = () => {
     };
 
     const handleDeleteBooking = async (id: string) => {
-        if (!confirm('Permanently delete this booking?')) return;
+        const ok = await confirmAction({ title: 'Delete Booking', message: 'Permanently delete this booking?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         try {
             await api.deleteCarBooking(id);
             toast.success('Booking deleted');
@@ -450,10 +457,10 @@ export const CarRentalManager: React.FC = () => {
             {/* Top Header */}
             <div className="bg-white dark:bg-[#1E293B] border-b border-slate-200 dark:border-slate-800 px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4 sticky top-0 z-20 shadow-sm">
                 <div>
-                    <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
                         <Car className="text-primary" size={28} style={{ color: '#C9732A' }} />
                         <span className="font-display text-2xl font-black tracking-tight">Car Rental Hub</span>
-                    </h2>
+                    </h1>
                     <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5 font-medium">Manage corporate transportation, quotations, drivers, vehicles, and allocations</p>
                 </div>
                 <div className="flex gap-2">
@@ -1110,37 +1117,37 @@ export const CarRentalManager: React.FC = () => {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Category *</label>
-                                    <select required value={vehicleForm.category_id} onChange={e => setVehicleForm({...vehicleForm, category_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect required value={vehicleForm.category_id} onChange={e => setVehicleForm({...vehicleForm, category_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">Select Category</option>
                                         {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Ownership *</label>
-                                    <select required value={vehicleForm.ownership} onChange={e => setVehicleForm({...vehicleForm, ownership: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect required value={vehicleForm.ownership} onChange={e => setVehicleForm({...vehicleForm, ownership: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="Owned">Owned (In-house)</option>
                                         <option value="Vendor">Vendor allocated</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
                             {vehicleForm.ownership === 'Vendor' && (
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Associated Vendor</label>
-                                    <select value={vehicleForm.vendor_id} onChange={e => setVehicleForm({...vehicleForm, vendor_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={vehicleForm.vendor_id} onChange={e => setVehicleForm({...vehicleForm, vendor_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">Select Vendor</option>
                                         {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             )}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Fuel Type</label>
-                                    <select value={vehicleForm.fuel_type} onChange={e => setVehicleForm({...vehicleForm, fuel_type: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={vehicleForm.fuel_type} onChange={e => setVehicleForm({...vehicleForm, fuel_type: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="Diesel">Diesel</option>
                                         <option value="Petrol">Petrol</option>
                                         <option value="CNG">CNG</option>
                                         <option value="EV">EV</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Odometer (KM)</label>
@@ -1148,11 +1155,11 @@ export const CarRentalManager: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Status</label>
-                                    <select value={vehicleForm.status} onChange={e => setVehicleForm({...vehicleForm, status: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={vehicleForm.status} onChange={e => setVehicleForm({...vehicleForm, status: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="Available">Available</option>
                                         <option value="Booked">Booked</option>
                                         <option value="Maintenance">Maintenance</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
                             <button type="submit" className="w-full py-3 bg-[#C9732A] text-white font-black rounded-xl text-xs shadow-md mt-4">
@@ -1191,24 +1198,24 @@ export const CarRentalManager: React.FC = () => {
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">License Expiry *</label>
-                                    <input type="date" required value={driverForm.license_expiry} onChange={e => setDriverForm({...driverForm, license_expiry: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs" />
+                                    <BrandDatePicker type="date" required value={driverForm.license_expiry} onChange={e => setDriverForm({...driverForm, license_expiry: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs" />
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Assign Vehicle</label>
-                                    <select value={driverForm.assigned_vehicle_id} onChange={e => setDriverForm({...driverForm, assigned_vehicle_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={driverForm.assigned_vehicle_id} onChange={e => setDriverForm({...driverForm, assigned_vehicle_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">None</option>
                                         {vehicles.map(v => <option key={v.id} value={v.id}>{v.name} ({v.registration_number})</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Police Verification</label>
-                                    <select value={driverForm.police_verification} onChange={e => setDriverForm({...driverForm, police_verification: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={driverForm.police_verification} onChange={e => setDriverForm({...driverForm, police_verification: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="Verified">Verified</option>
                                         <option value="Pending">Pending</option>
                                         <option value="Failed">Failed</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
                             <button type="submit" className="w-full py-3 bg-[#C9732A] text-white font-black rounded-xl text-xs shadow-md mt-4">
@@ -1234,7 +1241,7 @@ export const CarRentalManager: React.FC = () => {
                             <div className="grid grid-cols-3 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Link CRM Customer *</label>
-                                    <select value={bookingForm.customer_id} onChange={e => {
+                                    <BrandSelect value={bookingForm.customer_id} onChange={e => {
                                         const c = customers.find(x => x.id === e.target.value);
                                         setBookingForm({
                                             ...bookingForm,
@@ -1246,23 +1253,23 @@ export const CarRentalManager: React.FC = () => {
                                     }} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">-- Guest Checkout / Manual --</option>
                                         {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Link CRM Lead</label>
-                                    <select value={bookingForm.lead_id} onChange={e => setBookingForm({...bookingForm, lead_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={bookingForm.lead_id} onChange={e => setBookingForm({...bookingForm, lead_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">-- No Lead Associated --</option>
                                         {leads.map(l => <option key={l.id} value={l.id}>{l.leadNumber || l.id.slice(0, 8)} - {l.name}</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Trip Type</label>
-                                    <select value={bookingForm.trip_type} onChange={e => setBookingForm({...bookingForm, trip_type: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={bookingForm.trip_type} onChange={e => setBookingForm({...bookingForm, trip_type: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="Oneway">Oneway Trip</option>
                                         <option value="Round Trip">Round Trip</option>
                                         <option value="Local Package">Local Package (8hr/80km)</option>
                                         <option value="Airport Transfer">Airport Transfer</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
 
@@ -1298,11 +1305,11 @@ export const CarRentalManager: React.FC = () => {
                             <div className="grid grid-cols-4 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Pickup Date *</label>
-                                    <input type="date" required value={bookingForm.pickup_date} onChange={e => setBookingForm({...bookingForm, pickup_date: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs" />
+                                    <BrandDatePicker type="date" required value={bookingForm.pickup_date} onChange={e => setBookingForm({...bookingForm, pickup_date: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs" />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Time *</label>
-                                    <input type="time" required value={bookingForm.pickup_time} onChange={e => setBookingForm({...bookingForm, pickup_time: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs" />
+                                    <BrandDatePicker type="time" required value={bookingForm.pickup_time} onChange={e => setBookingForm({...bookingForm, pickup_time: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs" />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Est. KM *</label>
@@ -1317,14 +1324,14 @@ export const CarRentalManager: React.FC = () => {
                             <div className="grid grid-cols-3 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Vehicle Class *</label>
-                                    <select required value={bookingForm.vehicle_category_id} onChange={e => setBookingForm({...bookingForm, vehicle_category_id: e.target.value, assigned_vehicle_id: '', assigned_vendor_id: '', vendor_cost: 0})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect required value={bookingForm.vehicle_category_id} onChange={e => setBookingForm({...bookingForm, vehicle_category_id: e.target.value, assigned_vehicle_id: '', assigned_vendor_id: '', vendor_cost: 0})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">-- Choose Category --</option>
                                         {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({fmt(c.rate_per_km)}/km)</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Assign Cab</label>
-                                    <select value={bookingForm.assigned_vehicle_id} onChange={e => {
+                                    <BrandSelect value={bookingForm.assigned_vehicle_id} onChange={e => {
                                         const vId = e.target.value;
                                         const selectedVeh = vehicles.find(x => x.id === vId);
                                         const vendorId = (selectedVeh && selectedVeh.ownership === 'Vendor') ? selectedVeh.vendor_id : '';
@@ -1337,17 +1344,17 @@ export const CarRentalManager: React.FC = () => {
                                     }} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">No vehicle allocated</option>
                                         {availableVehicles.map(v => <option key={v.id} value={v.id}>{v.name} ({v.registration_number})</option>)}
-                                    </select>
+                                    </BrandSelect>
                                     {availableVehicles.length === 0 && bookingForm.vehicle_category_id && (
                                         <span className="text-[10px] text-rose-500 font-bold block mt-1">⚠️ No available cabs in this class on this date!</span>
                                     )}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Assign Driver</label>
-                                    <select value={bookingForm.assigned_driver_id} onChange={e => setBookingForm({...bookingForm, assigned_driver_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={bookingForm.assigned_driver_id} onChange={e => setBookingForm({...bookingForm, assigned_driver_id: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="">No driver allocated</option>
                                         {availableDrivers.map(d => <option key={d.id} value={d.id}>{d.name} ({d.mobile})</option>)}
-                                    </select>
+                                    </BrandSelect>
                                     {availableDrivers.length === 0 && bookingForm.pickup_date && (
                                         <span className="text-[10px] text-rose-500 font-bold block mt-1">⚠️ No available drivers on this date!</span>
                                     )}
@@ -1447,12 +1454,12 @@ export const CarRentalManager: React.FC = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Method *</label>
-                                    <select value={paymentForm.payment_method} onChange={e => setPaymentForm({...paymentForm, payment_method: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
+                                    <BrandSelect value={paymentForm.payment_method} onChange={e => setPaymentForm({...paymentForm, payment_method: e.target.value})} className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-none font-bold text-xs">
                                         <option value="UPI">UPI / GPay</option>
                                         <option value="Razorpay">Razorpay Checkout</option>
                                         <option value="Cash">Cash to Driver</option>
                                         <option value="Bank Transfer">Bank Transfer</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Receipt Reference</label>
@@ -1481,27 +1488,27 @@ export const CarRentalManager: React.FC = () => {
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center text-xs">
                                     <span className="font-bold text-slate-500">Driver Professionalism</span>
-                                    <select value={reviewForm.driver_rating} onChange={e => setReviewForm({...reviewForm, driver_rating: Number(e.target.value)})} className="h-8 rounded bg-slate-50 dark:bg-slate-800 font-bold border-none text-xs">
+                                    <BrandSelect value={reviewForm.driver_rating} onChange={e => setReviewForm({...reviewForm, driver_rating: Number(e.target.value)})} className="h-8 rounded bg-slate-50 dark:bg-slate-800 font-bold border-none text-xs">
                                         {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} Stars</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div className="flex justify-between items-center text-xs">
                                     <span className="font-bold text-slate-500">Vehicle Comfort</span>
-                                    <select value={reviewForm.vehicle_rating} onChange={e => setReviewForm({...reviewForm, vehicle_rating: Number(e.target.value)})} className="h-8 rounded bg-slate-50 dark:bg-slate-800 font-bold border-none text-xs">
+                                    <BrandSelect value={reviewForm.vehicle_rating} onChange={e => setReviewForm({...reviewForm, vehicle_rating: Number(e.target.value)})} className="h-8 rounded bg-slate-50 dark:bg-slate-800 font-bold border-none text-xs">
                                         {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} Stars</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div className="flex justify-between items-center text-xs">
                                     <span className="font-bold text-slate-500">Cleanliness & Hygiene</span>
-                                    <select value={reviewForm.cleanliness_rating} onChange={e => setReviewForm({...reviewForm, cleanliness_rating: Number(e.target.value)})} className="h-8 rounded bg-slate-50 dark:bg-slate-800 font-bold border-none text-xs">
+                                    <BrandSelect value={reviewForm.cleanliness_rating} onChange={e => setReviewForm({...reviewForm, cleanliness_rating: Number(e.target.value)})} className="h-8 rounded bg-slate-50 dark:bg-slate-800 font-bold border-none text-xs">
                                         {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} Stars</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div className="flex justify-between items-center text-xs">
                                     <span className="font-bold text-slate-500">Overall Rating</span>
-                                    <select value={reviewForm.overall_rating} onChange={e => setReviewForm({...reviewForm, overall_rating: Number(e.target.value)})} className="h-8 rounded bg-slate-50 dark:bg-slate-800 font-bold border-none text-xs">
+                                    <BrandSelect value={reviewForm.overall_rating} onChange={e => setReviewForm({...reviewForm, overall_rating: Number(e.target.value)})} className="h-8 rounded bg-slate-50 dark:bg-slate-800 font-bold border-none text-xs">
                                         {[5, 4, 3, 2, 1].map(n => <option key={n} value={n}>{n} Stars</option>)}
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
                             <div>

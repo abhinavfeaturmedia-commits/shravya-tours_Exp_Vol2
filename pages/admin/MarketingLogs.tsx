@@ -4,6 +4,9 @@ import { api } from '../../src/lib/api';
 import { generateWeeklyStandupSummary } from '../../src/lib/gemini';
 import { DailyMarketingLog, StaffMember, MarketingTarget, LogComment, LogReaction, Lead, Booking } from '../../types';
 import { toast } from 'sonner';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandDatePicker from '../../components/ui/BrandDatePicker';
 import {
     Flame, Sparkles, Plus, Calendar, Search, Edit2, Trash2, X, Check,
     TrendingUp, Award, BarChart3, Users, DollarSign, Mail, MessageSquare, Phone,
@@ -487,8 +490,9 @@ export const MarketingLogs: React.FC = () => {
         toast.success(nextStatus === 'completed' ? "Task marked as completed! 🎉" : "Task moved to To-Do");
     };
 
-    const handleDeleteTask = (id: string) => {
-        if (!confirm("Are you sure you want to delete this marketing task?")) return;
+    const handleDeleteTask = async (id: string) => {
+        const ok = await confirmAction({ title: 'Delete Marketing Task', message: 'Are you sure you want to delete this marketing task?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         setTasks(prev => prev.filter(t => t.id !== id));
         toast.success("Task deleted");
     };
@@ -523,8 +527,9 @@ export const MarketingLogs: React.FC = () => {
         setIsContentModalOpen(false);
     };
 
-    const handleDeleteContent = (id: string) => {
-        if (!confirm("Delete this content record?")) return;
+    const handleDeleteContent = async (id: string) => {
+        const ok = await confirmAction({ title: 'Delete Content Record', message: 'Delete this content record?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         setContentPosts(prev => prev.filter(c => c.id !== id));
         toast.success("Content log removed");
     };
@@ -560,8 +565,9 @@ export const MarketingLogs: React.FC = () => {
         setIsCampaignModalOpen(false);
     };
 
-    const handleDeleteCampaign = (id: string) => {
-        if (!confirm("Delete this campaign record?")) return;
+    const handleDeleteCampaign = async (id: string) => {
+        const ok = await confirmAction({ title: 'Delete Campaign Record', message: 'Delete this campaign record?', confirmLabel: 'Delete', tone: 'danger' });
+        if (!ok) return;
         setCampaigns(prev => prev.filter(c => c.id !== id));
         toast.success("Campaign record removed");
     };
@@ -1018,7 +1024,7 @@ export const MarketingLogs: React.FC = () => {
                     <div className="bg-white dark:bg-[#1A2633] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
                             {/* Filter by Staff */}
-                            <select
+                            <BrandSelect
                                 value={taskFilterStaff}
                                 onChange={e => setTaskFilterStaff(e.target.value)}
                                 className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl px-3 py-2 text-xs md:text-sm font-semibold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-primary/20"
@@ -1027,10 +1033,10 @@ export const MarketingLogs: React.FC = () => {
                                 {staff.map(s => (
                                     <option key={s.id} value={s.id}>{s.name}</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
 
                             {/* Filter by Status */}
-                            <select
+                            <BrandSelect
                                 value={taskFilterStatus}
                                 onChange={e => setTaskFilterStatus(e.target.value)}
                                 className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl px-3 py-2 text-xs md:text-sm font-semibold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-primary/20"
@@ -1040,10 +1046,10 @@ export const MarketingLogs: React.FC = () => {
                                 <option value="in_progress">In Progress</option>
                                 <option value="review">Under Review</option>
                                 <option value="completed">Completed</option>
-                            </select>
+                            </BrandSelect>
 
                             {/* Filter by Category */}
-                            <select
+                            <BrandSelect
                                 value={taskFilterCategory}
                                 onChange={e => setTaskFilterCategory(e.target.value)}
                                 className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl px-3 py-2 text-xs md:text-sm font-semibold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-primary/20"
@@ -1055,7 +1061,7 @@ export const MarketingLogs: React.FC = () => {
                                 <option value="offline">Offline / Field Promotion</option>
                                 <option value="seo_blog">SEO & Travel Guides</option>
                                 <option value="design">Graphics & Creatives</option>
-                            </select>
+                            </BrandSelect>
                         </div>
 
                         <button
@@ -1277,7 +1283,7 @@ export const MarketingLogs: React.FC = () => {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <select
+                                <BrandSelect
                                     value={contentFilterPlatform}
                                     onChange={e => setContentFilterPlatform(e.target.value)}
                                     className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300"
@@ -1288,7 +1294,7 @@ export const MarketingLogs: React.FC = () => {
                                     <option value="facebook">Facebook</option>
                                     <option value="whatsapp">WhatsApp</option>
                                     <option value="blog">Blog / Web</option>
-                                </select>
+                                </BrandSelect>
 
                                 <button
                                     onClick={() => {
@@ -1399,7 +1405,7 @@ export const MarketingLogs: React.FC = () => {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <select
+                                <BrandSelect
                                     value={campaignFilterChannel}
                                     onChange={e => setCampaignFilterChannel(e.target.value)}
                                     className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300"
@@ -1410,7 +1416,7 @@ export const MarketingLogs: React.FC = () => {
                                     <option value="youtube">YouTube Ads</option>
                                     <option value="flyers">Flyers / Print</option>
                                     <option value="offline_banners">Offline Events / Banners</option>
-                                </select>
+                                </BrandSelect>
 
                                 <button
                                     onClick={() => {
@@ -1666,7 +1672,7 @@ export const MarketingLogs: React.FC = () => {
                                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                     Assign to Staff Member *
                                 </label>
-                                <select
+                                <BrandSelect
                                     value={taskForm.assignedStaffId}
                                     onChange={e => setTaskForm({ ...taskForm, assignedStaffId: Number(e.target.value) })}
                                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 p-2.5 rounded-xl text-xs md:text-sm font-semibold"
@@ -1675,7 +1681,7 @@ export const MarketingLogs: React.FC = () => {
                                     {staff.map(s => (
                                         <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
                                     ))}
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
@@ -1683,7 +1689,7 @@ export const MarketingLogs: React.FC = () => {
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                         Category
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         value={taskForm.category}
                                         onChange={e => setTaskForm({ ...taskForm, category: e.target.value as any })}
                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 p-2 rounded-xl text-xs font-semibold"
@@ -1694,7 +1700,7 @@ export const MarketingLogs: React.FC = () => {
                                         <option value="offline">Offline / Field</option>
                                         <option value="seo_blog">SEO & Blogs</option>
                                         <option value="design">Design & Graphics</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
@@ -1715,7 +1721,7 @@ export const MarketingLogs: React.FC = () => {
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                         Priority
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         value={taskForm.priority}
                                         onChange={e => setTaskForm({ ...taskForm, priority: e.target.value as any })}
                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 p-2 rounded-xl text-xs font-semibold"
@@ -1724,13 +1730,13 @@ export const MarketingLogs: React.FC = () => {
                                         <option value="high">High</option>
                                         <option value="medium">Medium</option>
                                         <option value="low">Low</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                         Due Date
                                     </label>
-                                    <input
+                                    <BrandDatePicker
                                         type="date"
                                         value={taskForm.dueDate}
                                         onChange={e => setTaskForm({ ...taskForm, dueDate: e.target.value })}
@@ -1809,7 +1815,7 @@ export const MarketingLogs: React.FC = () => {
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                         Platform
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         value={contentForm.platform}
                                         onChange={e => setContentForm({ ...contentForm, platform: e.target.value as any })}
                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 p-2 rounded-xl text-xs font-semibold"
@@ -1820,13 +1826,13 @@ export const MarketingLogs: React.FC = () => {
                                         <option value="whatsapp">WhatsApp Broadcast</option>
                                         <option value="blog">Blog / Web Article</option>
                                         <option value="linkedin">LinkedIn</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                         Format
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         value={contentForm.contentType}
                                         onChange={e => setContentForm({ ...contentForm, contentType: e.target.value as any })}
                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 p-2 rounded-xl text-xs font-semibold"
@@ -1838,7 +1844,7 @@ export const MarketingLogs: React.FC = () => {
                                         <option value="video">Full Length Video</option>
                                         <option value="article">Blog / Travel Guide</option>
                                         <option value="broadcast">Broadcast Message</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                             </div>
 
@@ -1859,7 +1865,7 @@ export const MarketingLogs: React.FC = () => {
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                         Publish Date
                                     </label>
-                                    <input
+                                    <BrandDatePicker
                                         type="date"
                                         value={contentForm.date}
                                         onChange={e => setContentForm({ ...contentForm, date: e.target.value })}
@@ -1971,7 +1977,7 @@ export const MarketingLogs: React.FC = () => {
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                         Channel
                                     </label>
-                                    <select
+                                    <BrandSelect
                                         value={campaignForm.channel}
                                         onChange={e => setCampaignForm({ ...campaignForm, channel: e.target.value as any })}
                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 p-2 rounded-xl text-xs font-semibold"
@@ -1982,7 +1988,7 @@ export const MarketingLogs: React.FC = () => {
                                         <option value="flyers">Flyers / Newspaper Inserts</option>
                                         <option value="offline_banners">Offline Banners / Expo Stalls</option>
                                         <option value="influencer">Influencer Collaboration</option>
-                                    </select>
+                                    </BrandSelect>
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
@@ -2170,7 +2176,7 @@ export const MarketingLogs: React.FC = () => {
                                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                     Date *
                                 </label>
-                                <input
+                                <BrandDatePicker
                                     type="date"
                                     value={dailyLogForm.date}
                                     onChange={e => setDailyLogForm({ ...dailyLogForm, date: e.target.value })}

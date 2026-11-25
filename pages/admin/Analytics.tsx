@@ -14,6 +14,7 @@ import {
    Wallet, Building2, HelpCircle, UserCheck, FileSpreadsheet
 } from 'lucide-react';
 import { toast } from 'sonner';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 // ─── High-Insight Interactive Financial Trend Chart ──────────────────────────────────────
 interface TrendPoint { month: string; revenue: number; profit: number; year?: number; mIndex?: number; }
@@ -1648,9 +1649,9 @@ export const Analytics: React.FC = () => {
          {/* ── Top Header ── */}
          <div className="bg-white dark:bg-[#1A2633] border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-10">
             <div>
-               <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+               <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                   <BarChart className="text-primary" /> Analytics & Intelligence
-               </h2>
+               </h1>
                <p className="text-slate-500 dark:text-slate-400 text-sm">
                   Reconciled Financial Ledger, 12-Month Agent Performance, and Lead ROI
                </p>
@@ -1668,7 +1669,7 @@ export const Analytics: React.FC = () => {
                   <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
                   {isSyncing ? 'Syncing...' : 'Sync Data'}
                </button>
-               <select
+               <BrandSelect
                   value={timeRange}
                   onChange={(e) => setTimeRange(e.target.value as any)}
                   className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white text-sm rounded-lg px-4 py-2.5 font-bold shadow-sm focus:ring-2 focus:ring-primary outline-none"
@@ -1678,7 +1679,7 @@ export const Analytics: React.FC = () => {
                   <option value="thisMonth">This Month</option>
                   <option value="30days">Last 30 Days</option>
                   <option value="thisYear">This Year</option>
-               </select>
+               </BrandSelect>
                <button onClick={handleExport} className="flex items-center gap-2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-lg text-sm px-4 py-2.5 shadow-lg active:scale-95 transition-all btn-glow">
                   <Download size={18} /> Export CSV
                </button>

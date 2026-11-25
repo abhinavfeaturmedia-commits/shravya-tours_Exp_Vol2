@@ -15,6 +15,8 @@ import {
     MasterTermsTemplate,
     MEAL_PLAN_DESCRIPTIONS
 } from '../../types';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandComboInput from '../../components/ui/BrandComboInput';
 import {
     MapPin, Building2, Bike, Car, Calendar, Search, Plus, Filter,
     Download, Upload, Trash2, Edit2, Copy, MoreVertical, X,
@@ -30,6 +32,7 @@ import * as XLSX from 'xlsx';
 import { ImageUpload } from '../../components/ui/ImageUpload';
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { OrganizationMastersTab } from '../../components/admin/masters/OrganizationMastersTab';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
 
 type MasterTab = 'analytics' | 'countries' | 'locations' | 'hotels' | 'activities' | 'transports' | 'plans' | 'room-types' | 'meal-plans' | 'lead-sources' | 'terms' | 'organization';
 type ViewMode = 'grid' | 'list';
@@ -546,24 +549,24 @@ const MasterModal: React.FC<{
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Continent / Region</label>
-                            <input
-                                list="continent-list"
+                            <BrandComboInput
+                                labelText="Continent / Region"
+                                suggestions={[
+                                    'Asia',
+                                    'Southeast Asia',
+                                    'Middle East',
+                                    'Europe',
+                                    'Indian Ocean',
+                                    'North America',
+                                    'South America',
+                                    'Africa',
+                                    'Oceania',
+                                ]}
                                 value={form.region || ''}
                                 onChange={e => setForm({ ...form, region: e.target.value })}
                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
                                 placeholder="e.g. Europe, Asia"
                             />
-                            <datalist id="continent-list">
-                                <option value="Asia" />
-                                <option value="Southeast Asia" />
-                                <option value="Middle East" />
-                                <option value="Europe" />
-                                <option value="Indian Ocean" />
-                                <option value="North America" />
-                                <option value="South America" />
-                                <option value="Africa" />
-                                <option value="Oceania" />
-                            </datalist>
                         </div>
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Country Code (ISO)</label>
@@ -595,7 +598,7 @@ const MasterModal: React.FC<{
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Location Type</label>
-                            <select
+                            <BrandSelect
                                 value={form.type || 'City'}
                                 onChange={e => {
                                     const nextType = e.target.value;
@@ -610,7 +613,7 @@ const MasterModal: React.FC<{
                                 <option value="City">🏙️ City / Destination</option>
                                 <option value="State">🗺️ State / Province</option>
                                 <option value="Country">🌐 Country</option>
-                            </select>
+                            </BrandSelect>
                         </div>
 
                         {form.type !== 'Country' ? (
@@ -618,20 +621,14 @@ const MasterModal: React.FC<{
                                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
                                     Country <span className="text-red-500">*</span>
                                 </label>
-                                <div className="relative">
-                                    <input
-                                        list="country-suggestions"
-                                        value={form.country || ''}
-                                        onChange={e => setForm({ ...form, country: e.target.value })}
-                                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
-                                        placeholder="Select or type country (e.g. India, UAE, Thailand)"
-                                    />
-                                    <datalist id="country-suggestions">
-                                        {availableCountries.map(c => (
-                                            <option key={c} value={c} />
-                                        ))}
-                                    </datalist>
-                                </div>
+                                <BrandComboInput
+                                    labelText="Country"
+                                    suggestions={availableCountries}
+                                    value={form.country || ''}
+                                    onChange={e => setForm({ ...form, country: e.target.value })}
+                                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
+                                    placeholder="Select or type country (e.g. India, UAE, Thailand)"
+                                />
                             </div>
                         ) : (
                             <div>
@@ -679,19 +676,19 @@ const MasterModal: React.FC<{
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
                                 Destination Location <span className="text-red-500">*</span>
                             </label>
-                            <select
+                            <BrandSelect
                                 value={form.locationId || ''}
                                 onChange={e => setForm({ ...form, locationId: e.target.value })}
                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
                             >
                                 <option value="">Select Location</option>
                                 {masterLocations.map(l => <option key={l.id} value={l.id}>{l.name} ({l.region || l.type})</option>)}
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Star Rating</label>
                             <div className="flex items-center gap-2">
-                                <select
+                                <BrandSelect
                                     value={form.rating || 4.5}
                                     onChange={e => setForm({ ...form, rating: Number(e.target.value) })}
                                     className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
@@ -702,7 +699,7 @@ const MasterModal: React.FC<{
                                     <option value="3.5">⭐⭐⭐½ 3.5 Star Comfort</option>
                                     <option value="3">⭐⭐⭐ 3 Star Budget</option>
                                     <option value="2">⭐⭐ 2 Star Basic</option>
-                                </select>
+                                </BrandSelect>
                             </div>
                         </div>
                     </div>
@@ -785,18 +782,18 @@ const MasterModal: React.FC<{
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
                                 Location <span className="text-red-500">*</span>
                             </label>
-                            <select
+                            <BrandSelect
                                 value={form.locationId || ''}
                                 onChange={e => setForm({ ...form, locationId: e.target.value })}
                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
                             >
                                 <option value="">Select Location</option>
                                 {masterLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Category</label>
-                            <select
+                            <BrandSelect
                                 value={form.category || 'Leisure'}
                                 onChange={e => setForm({ ...form, category: e.target.value })}
                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
@@ -807,7 +804,7 @@ const MasterModal: React.FC<{
                                 <option value="Leisure">🏖️ Leisure & Wellness</option>
                                 <option value="Food">🍲 Food & Nightlife</option>
                                 <option value="Other">✨ Other</option>
-                            </select>
+                            </BrandSelect>
                         </div>
                     </div>
 
@@ -844,7 +841,7 @@ const MasterModal: React.FC<{
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Vehicle Type</label>
-                            <select
+                            <BrandSelect
                                 value={form.type || 'Sedan'}
                                 onChange={e => setForm({ ...form, type: e.target.value })}
                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
@@ -855,7 +852,7 @@ const MasterModal: React.FC<{
                                 <option value="Bus">🚌 Luxury Coach / Bus</option>
                                 <option value="Flight">✈️ Scheduled Flight</option>
                                 <option value="Train">🚆 Railway / Train</option>
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Passenger Capacity (Seats)</label>
@@ -902,14 +899,14 @@ const MasterModal: React.FC<{
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Primary Location</label>
-                            <select
+                            <BrandSelect
                                 value={form.locationId || ''}
                                 onChange={e => setForm({ ...form, locationId: e.target.value })}
                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
                             >
                                 <option value="">Select Location</option>
                                 {masterLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Duration (Days)</label>
@@ -954,7 +951,7 @@ const MasterModal: React.FC<{
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Code *</label>
-                            <select
+                            <BrandSelect
                                 value={form.code || 'CP'}
                                 onChange={e => {
                                     const c = e.target.value;
@@ -965,7 +962,7 @@ const MasterModal: React.FC<{
                                 {Object.keys(MEAL_PLAN_DESCRIPTIONS).map(code => (
                                     <option key={code} value={code}>{code}</option>
                                 ))}
-                            </select>
+                            </BrandSelect>
                         </div>
                         <div className="sm:col-span-2">
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Description</label>
@@ -984,7 +981,7 @@ const MasterModal: React.FC<{
             {activeTab === 'lead-sources' && (
                 <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Source Category</label>
-                    <select
+                    <BrandSelect
                         value={form.category || 'Organic'}
                         onChange={e => setForm({ ...form, category: e.target.value })}
                         className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
@@ -993,7 +990,7 @@ const MasterModal: React.FC<{
                         <option value="Paid">🎯 Paid Ads (Meta / Google)</option>
                         <option value="Referral">🤝 Referral / Word of Mouth</option>
                         <option value="Direct">⚡ Direct Walk-in / Call</option>
-                    </select>
+                    </BrandSelect>
                 </div>
             )}
 
@@ -1015,7 +1012,7 @@ const MasterModal: React.FC<{
                         </div>
                         <div>
                             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Category</label>
-                            <select
+                            <BrandSelect
                                 value={form.category || 'Cancellation Policy'}
                                 onChange={e => setForm({ ...form, category: e.target.value })}
                                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
@@ -1025,7 +1022,7 @@ const MasterModal: React.FC<{
                                 <option value="Travel Insurance">Travel Insurance</option>
                                 <option value="Pricing & Inclusions">Pricing & Inclusions</option>
                                 <option value="Other">Other</option>
-                            </select>
+                            </BrandSelect>
                         </div>
                     </div>
 
@@ -1553,7 +1550,7 @@ const BulkReassignLocationModal: React.FC<{
                 <div className="space-y-4">
                     <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">Target Location</label>
-                        <select
+                        <BrandSelect
                             value={targetLocationId}
                             onChange={e => setTargetLocationId(e.target.value)}
                             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none font-medium"
@@ -1562,7 +1559,7 @@ const BulkReassignLocationModal: React.FC<{
                             {locations.map(l => (
                                 <option key={l.id} value={l.id}>{l.name} ({l.region || l.type})</option>
                             ))}
-                        </select>
+                        </BrandSelect>
                     </div>
                     <div className="flex gap-2 pt-2">
                         <button
@@ -2336,8 +2333,14 @@ export const Masters: React.FC = () => {
                     </button>
 
                     <button
-                        onClick={() => {
-                            if (confirm(`Are you sure you want to delete ${selectedItems.size} items?`)) {
+                        onClick={async () => {
+                            const ok = await confirmAction({
+                                title: 'Delete Selected Items',
+                                message: `Are you sure you want to delete ${selectedItems.size} items?`,
+                                confirmLabel: 'Delete All',
+                                tone: 'danger',
+                            });
+                            if (ok) {
                                 const deleteFuncs: Record<string, (id: string) => void> = {
                                     countries: deleteMasterLocation,
                                     locations: deleteMasterLocation,
@@ -3098,7 +3101,7 @@ export const Masters: React.FC = () => {
 
                                 {/* Location Dropdown Filter if applicable */}
                                 {(activeTab === 'hotels' || activeTab === 'activities' || activeTab === 'plans') && (
-                                    <select
+                                    <BrandSelect
                                         value={locationFilter}
                                         onChange={e => setLocationFilter(e.target.value)}
                                         className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold outline-none"
@@ -3107,12 +3110,12 @@ export const Masters: React.FC = () => {
                                         {masterLocations.map(l => (
                                             <option key={l.id} value={l.id}>{l.name}</option>
                                         ))}
-                                    </select>
+                                    </BrandSelect>
                                 )}
 
                                 {/* Country Dropdown Filter for Destinations */}
                                 {activeTab === 'locations' && (
-                                    <select
+                                    <BrandSelect
                                         value={countryFilter}
                                         onChange={e => setCountryFilter(e.target.value)}
                                         className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold outline-none"
@@ -3121,11 +3124,11 @@ export const Masters: React.FC = () => {
                                         {Array.from(new Set(masterLocations.map(l => l.country || (l.type === 'Country' ? l.name : 'India')).filter(Boolean))).sort().map(c => (
                                             <option key={c} value={c}>{c}</option>
                                         ))}
-                                    </select>
+                                    </BrandSelect>
                                 )}
 
                                 {/* Status Filter */}
-                                <select
+                                <BrandSelect
                                     value={filterStatus}
                                     onChange={e => setFilterStatus(e.target.value as any)}
                                     className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold outline-none"
@@ -3133,7 +3136,7 @@ export const Masters: React.FC = () => {
                                     <option value="All">All Status</option>
                                     <option value="Active">Active Only</option>
                                     <option value="Inactive">Inactive Only</option>
-                                </select>
+                                </BrandSelect>
 
                                 {/* Grid vs List switcher */}
                                 <div className="hidden md:flex items-center gap-1 border-l border-slate-200 dark:border-slate-700 pl-3">
@@ -3179,7 +3182,7 @@ export const Masters: React.FC = () => {
                                 {/* Sorting */}
                                 <div className="flex items-center gap-1 text-xs font-medium text-slate-500 border-l border-slate-200 dark:border-slate-700 pl-3">
                                     <span>Sort:</span>
-                                    <select
+                                    <BrandSelect
                                         value={sortBy}
                                         onChange={e => setSortBy(e.target.value)}
                                         className="bg-transparent font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer hover:underline"
@@ -3190,7 +3193,7 @@ export const Masters: React.FC = () => {
                                         {activeTab === 'hotels' && <option value="rating">Rating</option>}
                                         {activeTab === 'activities' && <option value="category">Category</option>}
                                         {activeTab === 'transports' && <option value="capacity">Capacity</option>}
-                                    </select>
+                                    </BrandSelect>
                                     <button
                                         onClick={() => setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')}
                                         className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-600 dark:text-slate-300"

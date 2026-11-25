@@ -7,6 +7,7 @@ import {
     XCircle, AlertCircle, Send, Check, ShieldCheck, MapPin, 
     Info, Phone, Mail, Clock
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const HotelAvailabilityResponse: React.FC = () => {
     const { token } = useParams<{ token: string }>();
@@ -60,7 +61,7 @@ export const HotelAvailabilityResponse: React.FC = () => {
         if (!token) return;
 
         if (!respondedBy.trim()) {
-            alert("Please enter your name or reservation desk name.");
+            toast.error("Please enter your name or reservation desk name.");
             return;
         }
 
@@ -74,7 +75,7 @@ export const HotelAvailabilityResponse: React.FC = () => {
             });
             setSubmitted(true);
         } catch (err: any) {
-            alert(err.message || "Failed to submit response. Please try again.");
+            toast.error(err.message || "Failed to submit response. Please try again.");
         } finally {
             setSubmitting(false);
         }

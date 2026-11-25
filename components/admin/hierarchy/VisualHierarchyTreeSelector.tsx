@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { StaffMember, Designation, Branch } from '../../../types';
 import { StaffBotAvatar } from '../../../src/components/ui/StaffBotAvatar';
 import { Link } from 'react-router-dom';
+import BrandSelect from '../../ui/BrandSelect';
 import {
   Crown,
   GitFork,
@@ -404,7 +405,7 @@ export const VisualHierarchyTreeSelector: React.FC<VisualHierarchyTreeSelectorPr
               <ExternalLink size={10} />
             </Link>
           </label>
-          <select
+          <BrandSelect
             value={formData.designationId || ''}
             onChange={e => {
               const val = e.target.value.trim();
@@ -433,7 +434,7 @@ export const VisualHierarchyTreeSelector: React.FC<VisualHierarchyTreeSelectorPr
                 [{desig.grade_level}] {desig.name} {desig.department_name ? `(${desig.department_name})` : ''}
               </option>
             ))}
-          </select>
+          </BrandSelect>
           {activeDesignation && (
             <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 flex items-center gap-1">
               <CheckCircle2 size={11} /> Auto-synced Grade to [{activeDesignation.grade_level}] &amp; Role to &ldquo;{activeDesignation.name}&rdquo;
@@ -447,7 +448,7 @@ export const VisualHierarchyTreeSelector: React.FC<VisualHierarchyTreeSelectorPr
             <MapPin size={14} className="text-indigo-500" />
             Office Branch / Base Location
           </label>
-          <select
+          <BrandSelect
             value={formData.branchId || ''}
             onChange={e => {
               const val = e.target.value.trim();
@@ -461,7 +462,7 @@ export const VisualHierarchyTreeSelector: React.FC<VisualHierarchyTreeSelectorPr
                 {b.name} ({b.city}{b.state ? `, ${b.state}` : ''})
               </option>
             ))}
-          </select>
+          </BrandSelect>
           <p className="text-[10px] text-slate-400 mt-1">Assigns regional reporting and attendance perimeter.</p>
         </div>
       </div>
@@ -763,7 +764,7 @@ export const VisualHierarchyTreeSelector: React.FC<VisualHierarchyTreeSelectorPr
               <label className="text-xs font-bold uppercase text-slate-600 dark:text-slate-400 mb-1.5 block">
                 Primary Reporting Manager
               </label>
-              <select
+              <BrandSelect
                 value={formData.reportingToId ?? ''}
                 onChange={e => {
                   const val = e.target.value;
@@ -784,14 +785,14 @@ export const VisualHierarchyTreeSelector: React.FC<VisualHierarchyTreeSelectorPr
                       [{m.gradeLevel || (m as any).grade_level || 'L8'}] {m.name} ({m.role} - {m.department})
                     </option>
                   ))}
-              </select>
+              </BrandSelect>
             </div>
 
             <div>
               <label className="text-xs font-bold uppercase text-slate-600 dark:text-slate-400 mb-1.5 block">
                 Grade / Seniority Level
               </label>
-              <select
+              <BrandSelect
                 value={formData.gradeLevel}
                 onChange={e => onChange({ gradeLevel: e.target.value as any })}
                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
@@ -801,7 +802,7 @@ export const VisualHierarchyTreeSelector: React.FC<VisualHierarchyTreeSelectorPr
                     {t.grade} - {t.title} ({t.shortLabel})
                   </option>
                 ))}
-              </select>
+              </BrandSelect>
             </div>
           </div>
         </div>

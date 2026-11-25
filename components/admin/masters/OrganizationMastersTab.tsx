@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Department, Designation, Branch } from '../../../types';
 import { api } from '../../../src/lib/api';
 import { toast } from 'sonner';
+import { confirmAction } from '../../ui/ConfirmDialog';
+import { BrandSelect } from '../../ui/BrandSelect';
 import { 
   Building2, Users, MapPin, Search, Plus, Trash2, Edit2, 
   Check, X, ShieldCheck, Layers, DollarSign, Percent, ArrowUpDown,
@@ -191,7 +193,13 @@ export const OrganizationMastersTab: React.FC = () => {
 
   // Delete handler
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${name}"?`)) return;
+    const ok = await confirmAction({
+      title: 'Delete Item',
+      message: `Are you sure you want to delete "${name}"?`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       if (subTab === 'departments') await api.deleteDepartment(id);
       else if (subTab === 'designations') await api.deleteDesignation(id);
@@ -528,8 +536,9 @@ export const OrganizationMastersTab: React.FC = () => {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Grade Level (Hierarchy) *</label>
-                      <select
+                      <BrandSelect
                         value={desigForm.grade_level}
+                        labelText="Grade Level"
                         onChange={e => setDesigForm({ ...desigForm, grade_level: e.target.value as any })}
                         className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       >
@@ -541,13 +550,14 @@ export const OrganizationMastersTab: React.FC = () => {
                         <option value="L6">L6 - Supervisor / Asst Manager</option>
                         <option value="L7">L7 - Senior Executive</option>
                         <option value="L8">L8 - Executive / Coordinator</option>
-                      </select>
+                      </BrandSelect>
                     </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Department</label>
-                      <select
+                      <BrandSelect
                         value={desigForm.department_id}
+                        labelText="Department"
                         onChange={e => setDesigForm({ ...desigForm, department_id: e.target.value })}
                         className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       >
@@ -555,7 +565,7 @@ export const OrganizationMastersTab: React.FC = () => {
                         {departments.map(d => (
                           <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
                         ))}
-                      </select>
+                      </BrandSelect>
                     </div>
                   </div>
 

@@ -17,6 +17,9 @@ import {
 import { StaffBotAvatar } from '../../src/components/ui/StaffBotAvatar';
 import { FastHierarchySelector } from '../../components/admin/hierarchy/FastHierarchySelector';
 import { ShrawelloOrgChart } from '../../components/admin/hierarchy/ShrawelloOrgChart';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
+import BrandComboInput from '../../components/ui/BrandComboInput';
 
 // Format last_active ISO timestamp into human-readable relative time
 const formatLastActive = (value: string | null | undefined): string => {
@@ -368,7 +371,13 @@ export const StaffManagement: React.FC = () => {
             const res = await api.syncStaffAuth();
             if (res.created && res.created.length > 0) {
                 const list = res.created.map((c: any) => `${c.name}: ${c.tempPassword}`).join('\n');
-                alert(`Sync complete! New accounts created:\n\n${list}\n\nPlease share these passwords securely.`);
+                navigator.clipboard?.writeText(list).catch(() => {});
+                await confirmAction({
+                    title: 'Staff Auth Synced — Passwords Copied',
+                    message: `New accounts created (copied to clipboard):\n\n${list}\n\nPlease share these passwords securely.`,
+                    confirmLabel: 'Done',
+                    tone: 'primary',
+                });
             } else {
                 toast.success(res.message || 'All accounts already synced');
             }
@@ -541,7 +550,13 @@ export const StaffManagement: React.FC = () => {
         }
         // Fix #15: Offboarding warning — warn about orphaned leads
         const warningMsg = `Remove ${member?.name}? This will permanently delete their login and staff profile. Their assigned leads and follow-ups will become unassigned.`;
-        if (confirm(warningMsg)) {
+        const ok = await confirmAction({
+            title: 'Remove Staff Member',
+            message: warningMsg,
+            confirmLabel: 'Remove Permanently',
+            tone: 'danger',
+        });
+        if (ok) {
             try {
                 await deleteStaff(id);
                 if (String(selectedStaffId) === String(id)) setSelectedStaffId(null);
@@ -774,7 +789,7 @@ export const StaffManagement: React.FC = () => {
                                                 </div>
                                                 <div>
                                                     <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Department *</label>
-                                                    <select
+                                                    <BrandSelect
                                                         value={formData.department}
                                                         onChange={e => setFormData({ ...formData, department: e.target.value })}
                                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer"
@@ -789,7 +804,7 @@ export const StaffManagement: React.FC = () => {
                                                         <option>Technology</option>
                                                         <option>Human Resources</option>
                                                         <option>Content & Design</option>
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
                                                 <div>
                                                     <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Primary Email *</label>
@@ -838,59 +853,36 @@ export const StaffManagement: React.FC = () => {
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                                 <div className="sm:col-span-2">
                                                     <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">Designation / Role Title</label>
-                                                    <input
-                                                        list="roles"
+                                                    <BrandComboInput
+                                                        labelText="Designation / Role Title"
+                                                        suggestions={[
+                                                            'Owner', 'Co-Owner', 'Super Admin', 'Administrator', 'Branch Head',
+                                                            'Operations Head', 'Sales Head', 'Finance Head', 'Manager',
+                                                            'Sales Manager', 'Operations Manager', 'Marketing Manager',
+                                                            'Account Manager', 'Product Manager', 'Senior Tour Consultant',
+                                                            'Tour Consultant', 'Tour Coordinator', 'Visa Executive',
+                                                            'Visa Consultant', 'Senior Agent', 'Agent', 'Travel Agent',
+                                                            'Sales Executive', 'Booking Executive', 'Field Agent',
+                                                            'Editor', 'Content Writer', 'Support', 'Customer Support',
+                                                            'Finance Executive', 'Accountant', 'Intern'
+                                                        ]}
                                                         value={formData.role}
                                                         onChange={e => setFormData({ ...formData, role: e.target.value })}
                                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none"
                                                         placeholder="e.g. Senior Tour Consultant"
                                                     />
-                                                    <datalist id="roles">
-                                                        <option value="Owner" />
-                                                        <option value="Co-Owner" />
-                                                        <option value="Super Admin" />
-                                                        <option value="Administrator" />
-                                                        <option value="Branch Head" />
-                                                        <option value="Operations Head" />
-                                                        <option value="Sales Head" />
-                                                        <option value="Finance Head" />
-                                                        <option value="Manager" />
-                                                        <option value="Sales Manager" />
-                                                        <option value="Operations Manager" />
-                                                        <option value="Marketing Manager" />
-                                                        <option value="Account Manager" />
-                                                        <option value="Product Manager" />
-                                                        <option value="Senior Tour Consultant" />
-                                                        <option value="Tour Consultant" />
-                                                        <option value="Tour Coordinator" />
-                                                        <option value="Visa Executive" />
-                                                        <option value="Visa Consultant" />
-                                                        <option value="Senior Agent" />
-                                                        <option value="Agent" />
-                                                        <option value="Travel Agent" />
-                                                        <option value="Sales Executive" />
-                                                        <option value="Booking Executive" />
-                                                        <option value="Field Agent" />
-                                                        <option value="Editor" />
-                                                        <option value="Content Writer" />
-                                                        <option value="Support" />
-                                                        <option value="Customer Support" />
-                                                        <option value="Finance Executive" />
-                                                        <option value="Accountant" />
-                                                        <option value="Intern" />
-                                                    </datalist>
                                                 </div>
 
                                                 <div>
                                                     <label className="text-xs font-bold uppercase text-slate-500 mb-1.5 block">User Type</label>
-                                                    <select
+                                                    <BrandSelect
                                                         value={formData.userType}
                                                         onChange={e => setFormData({ ...formData, userType: e.target.value as any })}
                                                         className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none cursor-pointer"
                                                     >
                                                         <option value="Staff">Staff (Configurable Access)</option>
                                                         <option value="Admin">Admin (Master Unrestricted)</option>
-                                                    </select>
+                                                    </BrandSelect>
                                                 </div>
                                             </div>
 
@@ -1087,7 +1079,7 @@ export const StaffManagement: React.FC = () => {
                                                                 Auto-populate recommended access, actions, and scopes:
                                                             </p>
                                                         </div>
-                                                        <select
+                                                        <BrandSelect
                                                             value={selectedPresetId}
                                                             onChange={e => handleApplyPreset(e.target.value)}
                                                             className="mt-2.5 w-full bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-700 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm cursor-pointer"
@@ -1098,7 +1090,7 @@ export const StaffManagement: React.FC = () => {
                                                                     {preset.name}
                                                                 </option>
                                                             ))}
-                                                        </select>
+                                                        </BrandSelect>
                                                     </div>
 
                                                     {/* Global CRM Scope */}
@@ -1110,7 +1102,7 @@ export const StaffManagement: React.FC = () => {
                                                             </label>
                                                             <p className="text-[10px] text-slate-400 mt-0.5">Controls which leads & bookings this user sees.</p>
                                                         </div>
-                                                        <select
+                                                        <BrandSelect
                                                             value={formData.queryScope}
                                                             onChange={e => {
                                                                 const newScope = e.target.value as 'Show Assigned Query Only' | 'Show Department Queries' | 'Show All Queries';
@@ -1134,7 +1126,7 @@ export const StaffManagement: React.FC = () => {
                                                             <option value="Show Assigned Query Only">Show Assigned Only (Own records)</option>
                                                             <option value="Show Department Queries">Show Department Queries ({formData.department})</option>
                                                             <option value="Show All Queries">Show All Queries (Global Agency)</option>
-                                                        </select>
+                                                        </BrandSelect>
                                                     </div>
 
                                                     {/* WhatsApp Scope */}
@@ -1146,7 +1138,7 @@ export const StaffManagement: React.FC = () => {
                                                             </label>
                                                             <p className="text-[10px] text-slate-400 mt-0.5">Controls which client chat streams are visible.</p>
                                                         </div>
-                                                        <select
+                                                        <BrandSelect
                                                             value={formData.whatsappScope}
                                                             onChange={e => setFormData({ ...formData, whatsappScope: e.target.value as any })}
                                                             className="mt-2 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-bold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
@@ -1154,7 +1146,7 @@ export const StaffManagement: React.FC = () => {
                                                             <option value="Assigned Queries Messages">Assigned Queries Messages (Own clients)</option>
                                                             <option value="Department Messages">Department Messages ({formData.department})</option>
                                                             <option value="All Messages">All Messages (Global Agency)</option>
-                                                        </select>
+                                                        </BrandSelect>
                                                     </div>
                                                 </div>
 
@@ -1293,16 +1285,15 @@ export const StaffManagement: React.FC = () => {
                                                                         {mod.hasScope && modPerm.view && (
                                                                             <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/80 dark:border-slate-700">
                                                                                 <span className="material-symbols-outlined text-[13px] text-slate-400 ml-1.5">travel_explore</span>
-                                                                                <select
+                                                                                <BrandSelect
                                                                                     value={modPerm.scope || 'assigned'}
                                                                                     onChange={e => handleModuleScopeChange(mod.key, e.target.value as any)}
                                                                                     className="text-[11px] font-bold bg-transparent text-slate-700 dark:text-slate-200 px-1 py-1 outline-none cursor-pointer"
-                                                                                    title="Data scope for this module"
                                                                                 >
                                                                                     <option value="assigned">Assigned Records Only</option>
                                                                                     <option value="department">Department Records</option>
                                                                                     <option value="all">All Organization</option>
-                                                                                </select>
+                                                                                </BrandSelect>
                                                                             </div>
                                                                         )}
 
@@ -1350,16 +1341,15 @@ export const StaffManagement: React.FC = () => {
 
                                                                         {/* Module-Level Data Scope Dropdown */}
                                                                         {mod.hasScope && modPerm.view && (
-                                                                            <select
+                                                                            <BrandSelect
                                                                                 value={modPerm.scope || 'assigned'}
                                                                                 onChange={e => handleModuleScopeChange(mod.key, e.target.value as DataScopeLevel)}
                                                                                 className="text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-lg px-2 py-1 text-slate-700 dark:text-slate-200 cursor-pointer outline-none focus:ring-1 focus:ring-primary"
-                                                                                title={`Data visibility scope for ${mod.name}`}
                                                                             >
                                                                                 <option value="assigned">Assigned Only</option>
                                                                                 <option value="department">Department</option>
                                                                                 <option value="all">All Records</option>
-                                                                            </select>
+                                                                            </BrandSelect>
                                                                         )}
 
                                                                         {/* Sub-Features Accordion Button */}
@@ -1750,18 +1740,17 @@ export const StaffManagement: React.FC = () => {
                             <div className="flex items-center gap-2.5 w-full md:w-auto shrink-0">
                                 {/* Sort dropdown */}
                                 <div className="relative">
-                                    <select
+                                    <BrandSelect
                                         value={sortBy}
                                         onChange={e => setSortBy(e.target.value as any)}
-                                        className="appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-700/70 rounded-xl pl-8 pr-8 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none cursor-pointer transition-all"
+                                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-700/70 rounded-xl pl-8 pr-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none cursor-pointer transition-all"
                                     >
                                         <option value="name">Sort: Name A–Z</option>
                                         <option value="role">Sort: Role</option>
                                         <option value="department">Sort: Department</option>
                                         <option value="joined">Sort: Newest First</option>
-                                    </select>
+                                    </BrandSelect>
                                     <span className="material-symbols-outlined text-[16px] text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">swap_vert</span>
-                                    <span className="material-symbols-outlined text-[16px] text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">expand_more</span>
                                 </div>
 
                                 {/* Search bar */}

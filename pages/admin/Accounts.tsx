@@ -7,6 +7,8 @@ import { parseInvoice } from '../../src/lib/gemini';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ActionMenu } from '../../components/ui/ActionMenu';
+import { confirmAction } from '../../components/ui/ConfirmDialog';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 export const Accounts: React.FC = () => {
     const { accounts, addAccount, updateAccount, deleteAccount, addAccountTransaction, updateAccountTxStatus, bookings } = useData();
@@ -455,7 +457,8 @@ export const Accounts: React.FC = () => {
                                         </div>
 
                                         <div className="bg-white dark:bg-[#1A2633] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                                            <table className="w-full text-left">
+                                            <div className="overflow-x-auto">
+                                            <table className="w-full min-w-[680px] text-left">
                                                 <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-xs font-black uppercase text-slate-400 tracking-wider">
                                                     <tr>
                                                         <th className="px-6 py-4">Date</th>
@@ -505,6 +508,7 @@ export const Accounts: React.FC = () => {
                                                     )}
                                                 </tbody>
                                             </table>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -513,7 +517,7 @@ export const Accounts: React.FC = () => {
                                     <div className="max-w-2xl mx-auto space-y-8 pt-8">
                                         <div className="space-y-4">
                                             <h3 className="text-sm font-black text-red-600 uppercase tracking-wider border-b border-red-100 dark:border-red-900/30 pb-2">Danger Zone</h3>
-                                            <button onClick={() => { if (confirm('Delete this account?')) { deleteAccount(selectedAccount.id); setSelectedAccountId(null); } }} className="w-full py-4 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-red-600 font-bold rounded-xl text-sm hover:bg-red-100 transition-colors">
+                                            <button onClick={async () => { const ok = await confirmAction({ title: 'Delete Account', message: 'Delete this account permanently?', confirmLabel: 'Delete', tone: 'danger' }); if (ok) { deleteAccount(selectedAccount.id); setSelectedAccountId(null); } }} className="w-full py-4 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 text-red-600 font-bold rounded-xl text-sm hover:bg-red-100 transition-colors">
                                                 Delete Account Permanently
                                             </button>
                                         </div>
@@ -579,10 +583,10 @@ export const Accounts: React.FC = () => {
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Account Type</label>
-                                <select className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full text-sm font-bold focus:ring-2 focus:ring-primary outline-none" value={newAcc.type} onChange={e => setNewAcc({ ...newAcc, type: e.target.value as any })}>
+                                <BrandSelect className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 rounded-xl w-full text-sm font-bold focus:ring-2 focus:ring-primary outline-none" value={newAcc.type} onChange={e => setNewAcc({ ...newAcc, type: e.target.value as any })}>
                                     <option>Agent</option>
                                     <option>Corporate</option>
-                                </select>
+                                </BrandSelect>
                             </div>
 
                             <button type="submit" className="w-full py-4 bg-primary text-white font-bold rounded-xl shadow-lg hover:bg-primary-dark transition-all mt-2">Create Account</button>

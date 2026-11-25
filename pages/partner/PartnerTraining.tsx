@@ -72,7 +72,7 @@ export const PartnerTraining: React.FC = () => {
   const progressPercentage = videos.length > 0 ? Math.round((completedCount / videos.length) * 100) : 0;
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
       {/* Hero Banner */}
       <div className="relative overflow-hidden bg-gradient-to-br from-violet-950 via-purple-900 to-indigo-950 p-6 sm:p-8 rounded-3xl border border-violet-800/40 shadow-2xl">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">

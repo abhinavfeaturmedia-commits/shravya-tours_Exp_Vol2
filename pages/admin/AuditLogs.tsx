@@ -10,6 +10,7 @@ import {
     Clock, Database
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 // Badge component for different action types
 const ActionBadge = ({ action }: { action: string }) => {
@@ -138,25 +139,23 @@ export const AuditLogs: React.FC = () => {
                     {/* Filters */}
                     <div className="flex gap-2 md:gap-3 overflow-x-auto pb-1 lg:pb-0 hide-scrollbar">
                         <div className="relative flex-1 min-w-[130px]">
-                            <select
+                            <BrandSelect
                                 value={filterModule}
                                 onChange={(e) => setFilterModule(e.target.value)}
-                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-2.5 pl-3 pr-8 rounded-xl text-xs md:text-sm font-semibold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-2.5 px-3 rounded-xl text-xs md:text-sm font-semibold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
                             >
                                 {uniqueModules.map(m => <option key={m} value={m}>{m} Module</option>)}
-                            </select>
-                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                            </BrandSelect>
                         </div>
 
                         <div className="relative flex-1 min-w-[130px]">
-                            <select
+                            <BrandSelect
                                 value={filterAction}
                                 onChange={(e) => setFilterAction(e.target.value)}
-                                className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-2.5 pl-3 pr-8 rounded-xl text-xs md:text-sm font-semibold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
+                                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-2.5 px-3 rounded-xl text-xs md:text-sm font-semibold focus:ring-2 focus:ring-primary outline-none cursor-pointer"
                             >
                                 {uniqueActions.map(a => <option key={a} value={a}>{a} Actions</option>)}
-                            </select>
-                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                            </BrandSelect>
                         </div>
                     </div>
                 </div>

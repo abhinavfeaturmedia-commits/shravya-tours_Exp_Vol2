@@ -17,6 +17,7 @@ import { getIndianFinancialYear } from '../../utils/gstUtils';
 import { exportConsolidatedGstWorkbook } from '../../src/lib/gstExportEngine';
 import { downloadInvoicesAsZip, InvoiceCopyType, BatchProgress } from '../../utils/batchInvoiceDownloader';
 import { BatchInvoicesDownloadModal } from '../../components/admin/BatchInvoicesDownloadModal';
+import BrandSelect from '../../components/ui/BrandSelect';
 
 const ConfirmModal: React.FC<{
     open: boolean; title: string; message: string;
@@ -404,7 +405,7 @@ export const InvoicesDashboard: React.FC = () => {
             {/* Header */}
             <div className="px-8 py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-4xl font-bold text-slate-900 dark:text-white font-display tracking-tight">Invoices & GST Billing</h2>
+                    <h1 className="text-4xl font-bold text-slate-900 dark:text-white font-display tracking-tight">Invoices & GST Billing</h1>
                     <p className="text-slate-500 dark:text-slate-400 mt-1">Rule 46 compliant sequential invoicing, quotations, and GSTR-1 filings.</p>
                 </div>
                 <div className="flex gap-2.5 flex-wrap">
@@ -443,15 +444,15 @@ export const InvoicesDashboard: React.FC = () => {
                 {/* Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     {[
-                        { label:'Total Invoiced',    value: stats.totalRevenue,        sub: `${stats.totalCount} documents total`,                                   icon:<Wallet size={16}/>,       color:'orange' },
-                        { label:'Pending',           value: stats.pendingAmount,       sub: `${stats.pendingCount} invoice${stats.pendingCount!==1?'s':''} awaiting`, icon:<Clock size={16}/>,        color:'blue'   },
-                        { label:'Overdue',           value: stats.overdueAmount,       sub: `${stats.overdueCount} require attention`,                               icon:<AlertCircle size={16}/>,  color:'red', valColor:'text-red-600' },
-                        { label:'Paid (This Month)', value: stats.paidThisMonthAmount, sub: `${stats.paidThisMonthCount} invoice${stats.paidThisMonthCount!==1?'s':''} settled`, icon:<CheckCircle2 size={16}/>, color:'green' },
-                    ].map(({ label, value, sub, icon, color, valColor }) => (
+                        { label:'Total Invoiced',    value: stats.totalRevenue,        sub: `${stats.totalCount} documents total`,                                   icon:<Wallet size={16}/>,       iconCls:'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400' },
+                        { label:'Pending',           value: stats.pendingAmount,       sub: `${stats.pendingCount} invoice${stats.pendingCount!==1?'s':''} awaiting`, icon:<Clock size={16}/>,        iconCls:'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'   },
+                        { label:'Overdue',           value: stats.overdueAmount,       sub: `${stats.overdueCount} require attention`,                               icon:<AlertCircle size={16}/>,  iconCls:'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400', valColor:'text-red-600' },
+                        { label:'Paid (This Month)', value: stats.paidThisMonthAmount, sub: `${stats.paidThisMonthCount} invoice${stats.paidThisMonthCount!==1?'s':''} settled`, icon:<CheckCircle2 size={16}/>, iconCls:'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' },
+                    ].map(({ label, value, sub, icon, iconCls, valColor }) => (
                         <div key={label} className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-all">
                             <div className="flex justify-between items-start mb-4">
                                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</h3>
-                                <div className={`w-8 h-8 rounded-lg bg-${color}-100 text-${color}-600 flex items-center justify-center`}>{icon}</div>
+                                <div className={`w-8 h-8 rounded-lg ${iconCls} flex items-center justify-center`}>{icon}</div>
                             </div>
                             <p className={`text-3xl font-black mb-1 ${valColor || 'text-slate-900 dark:text-white'}`}>₹{Math.round(value).toLocaleString('en-IN')}</p>
                             <p className="text-sm font-medium text-slate-500">{sub}</p>
@@ -668,10 +669,10 @@ export const InvoicesDashboard: React.FC = () => {
                                         <td className="py-4 px-6 font-bold text-slate-900 dark:text-white">₹{Math.round(Number(inv.total_amount)).toLocaleString('en-IN')}</td>
                                         <td className="py-4 px-6" onClick={e => e.stopPropagation()}>
                                             {statusChangingId === inv.id ? <Loader2 size={14} className="animate-spin text-orange-500"/> : (
-                                                <select value={inv.status||'Draft'} onChange={e => handleStatusChange(inv.id, e.target.value)}
+                                                <BrandSelect value={inv.status||'Draft'} onChange={e => handleStatusChange(inv.id, e.target.value)}
                                                     className={`text-xs font-bold px-2.5 py-1 rounded-md border-0 outline-none cursor-pointer ${STATUS_COLORS[inv.status]||STATUS_COLORS.Draft}`}>
                                                     {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                                                </select>
+                                                </BrandSelect>
                                             )}
                                         </td>
                                         <td className="py-4 px-6 text-right" onClick={e => e.stopPropagation()}>
@@ -761,7 +762,7 @@ export const InvoicesDashboard: React.FC = () => {
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200/60 dark:border-slate-700">
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Financial Year:</span>
-                                <select
+                                <BrandSelect
                                     value={gstr1Fy}
                                     onChange={e => {
                                         setGstr1Fy(e.target.value);
@@ -772,7 +773,7 @@ export const InvoicesDashboard: React.FC = () => {
                                     <option value="26-27">FY 2026-27</option>
                                     <option value="25-26">FY 2025-26</option>
                                     <option value="24-25">FY 2024-25</option>
-                                </select>
+                                </BrandSelect>
                                 {gstr1Loading && <Loader2 size={16} className="animate-spin text-orange-500" />}
                             </div>
 
