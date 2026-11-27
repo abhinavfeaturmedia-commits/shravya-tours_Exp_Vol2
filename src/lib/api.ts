@@ -2,6 +2,7 @@ import imageCompression from 'browser-image-compression';
 import { Package, Booking, Lead, LeadLog, BookingStatus, BookingType, StaffMember, Customer, Department, Designation, Branch, HierarchyManager, HierarchyChainItem, HierarchyDownline, MyReportingResponse, ApproverResolution, HRGrievance, MasterRoomType, MasterMealPlan, MasterActivity, MasterTransport, MasterPlan, MasterLeadSource, MasterTermsTemplate, CMSBanner, CMSTestimonial, CMSGalleryImage, CMSPost, FollowUp, Proposal, HotelAvailabilityRequest, HotelAvailabilityStatus, DailyTarget, TimeSession, AssignmentRule, UserActivity, Campaign, MasterHotel, Task, AuditLog, Expense, AttendanceLog, StaffLeave, AttendanceSettings, TodayAttendanceResponse, AttendanceReportResponse, Coupon, DailyMarketingLog, MarketingTarget, LogComment, LogReaction, InAppNotification, BookingDailyDeliverable, DailySlot, MembershipPlan, Account, AccountTransaction, ReportHistoryItem } from '../../types';
 import { normalisePhone } from '../../utils/phoneUtils';
 import { parsePaxString, formatPaxString } from '../../utils/paxUtils';
+import { inclusiveDaysBetween, toPlainDateYMD, todayDateStr } from '../../utils/tourReadiness';
 
 // ─── BASE API URL ───
 // In dev mode, use Vite proxy (empty string) so request goes to the same origin.
@@ -90,6 +91,194 @@ const parseJsonFieldSafe = (field: any, defaultValue: any) => {
         }
     }
     return field || defaultValue;
+};
+
+/**
+ * Normalizes a MySQL DATE value (either plain 'YYYY-MM-DD' or UTC ISO string from mysql2)
+ * into a location-agnostic 'YYYY-MM-DD' calendar date without UTC off-by-one drift.
+ * Filters out MySQL zero-date artifacts (year < 1970, e.g. '1899-11-30').
+ */
+const normalizeCalendarDateYMD = (d: any): string => {
+    if (!d) return '';
+    if (typeof d === 'string') {
+        const trimmed = d.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+            const year = Number(trimmed.slice(0, 4));
+            if (year < 1970) return '';
+            return toPlainDateYMD(trimmed) || trimmed;
+        }
+    }
+    const dateObj = new Date(d);
+    if (isNaN(dateObj.getTime()) || dateObj.getFullYear() < 1970) return '';
+    return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+};
+
+const mapBookingRow = (row: any): Booking => {
+    const txs = (row.booking_transactions || []).map((t: any) => ({
+        id: t.id,
+        date: t.date,
+        amount: Number(t.amount),
+        type: t.type,
+        method: t.method,
+        reference: t.reference,
+        notes: t.notes,
+        status: t.status || 'Pending',
+        receiptUrl: t.receipt_url,
+        recordedBy: t.recorded_by || 'System'
+    }));
+
+    const totalAmount = Number(row.total_price) || Number(row.amount) || 0;
+    const netPaid = txs.reduce((sum: number, t: any) => {
+        if (t.status === 'Verified') {
+            return sum + (t.type === 'Payment' ? t.amount : t.type === 'Refund' ? -t.amount : 0);
+        }
+        return sum;
+    }, 0);
+
+    const grossPaid = txs.reduce((sum: number, t: any) => {
+        if (t.status !== 'Rejected') {
+            return sum + (t.type === 'Payment' ? t.amount : t.type === 'Refund' ? -t.amount : 0);
+        }
+        return sum;
+    }, 0);
+
+    let dynamicPayment: BookingStatus | 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
+    if (row.payment_status === 'paid') dynamicPayment = 'Paid';
+    else if (row.payment_status === 'deposit') dynamicPayment = 'Deposit';
+    else if (row.payment_status === 'refunded') dynamicPayment = 'Refunded';
+    else if (netPaid >= totalAmount && totalAmount > 0) dynamicPayment = 'Paid';
+    else if (netPaid > 0) dynamicPayment = 'Deposit';
+    else if (netPaid < 0) dynamicPayment = 'Refunded';
+    else if (grossPaid > 0) dynamicPayment = 'Deposit';
+
+    const sbs = (row.supplier_bookings || []).map((sb: any) => ({
+        id: sb.id,
+        bookingId: sb.booking_id,
+        vendorId: sb.vendor_id,
+        serviceType: sb.service_type,
+        confirmationNumber: sb.confirmation_number,
+        cost: Number(sb.cost) || 0,
+        paidAmount: Number(sb.paid_amount) || 0,
+        paymentStatus: sb.payment_status,
+        bookingStatus: sb.booking_status,
+        paymentDueDate: sb.payment_due_date,
+        notes: sb.notes,
+        payments: parseJsonFieldSafe(sb.payments, []),
+        driverName: sb.driver_name || null,
+        driverPhone: sb.driver_phone || null,
+        vehicleNumber: sb.vehicle_number || null
+    }));
+
+    const formattedDate = normalizeCalendarDateYMD(row.booking_date || row.date);
+    const formattedEndDate = normalizeCalendarDateYMD(row.end_date);
+
+    const parsedPaxRow = parsePaxString(row.guests || (row.number_of_people ? `${row.number_of_people} Adults, ${row.pax_child || 0} Children` : ''));
+    const pAdult = (row.pax_adult !== null && row.pax_adult !== undefined) ? Number(row.pax_adult) : (row.number_of_people ? Number(row.number_of_people) : parsedPaxRow.adults);
+    const pChild = (row.pax_child !== null && row.pax_child !== undefined) ? Number(row.pax_child) : parsedPaxRow.children;
+    const pInfant = (row.pax_infant !== null && row.pax_infant !== undefined) ? Number(row.pax_infant) : parsedPaxRow.infants;
+
+    return {
+        id: row.id,
+        bookingNumber: row.booking_number ? Number(row.booking_number) : undefined,
+        type: (row.type ? row.type : 'Tour') as BookingType,
+        customerId: row.customer_id ? String(row.customer_id) : undefined,
+        customer: row.customer_name || 'Anonymous',
+        email: row.customer_email || '',
+        phone: row.customer_phone || '',
+        assignedTo: row.assigned_to ? Number(row.assigned_to) : undefined,
+        assignedStaffIds: parseStaffListSafe(row.assigned_staff_ids, row.assigned_to),
+        title: row.title || row.package_title || 'Unknown Package',
+        date: formattedDate,
+        endDate: formattedEndDate || formattedDate,
+        guests: formatPaxString(pAdult, pChild, pInfant),
+        amount: totalAmount,
+        status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
+        payment: dynamicPayment as any,
+        packageId: row.tour_id || row.package_id,
+        invoiceNo: row.invoice_no || (row.booking_number ? `BK-${String(row.booking_number).padStart(4, '0')}` : (row.id ? `INV-${row.id.slice(0, 8).toUpperCase()}` : '')),
+        transactions: txs,
+        supplierBookings: sbs,
+        notes: parseJsonFieldSafe(row.booking_notes, []),
+        durationDays: row.duration_days ? Number(row.duration_days) : undefined,
+        paxCount: row.pax_count ? Number(row.pax_count) : (pAdult + pChild),
+        whatsappGroupUrl: row.whatsapp_group_url || undefined,
+        liveStatus: (row.live_status && row.live_status !== 'Auto') ? (row.live_status as any) : undefined,
+        partnerId: row.partner_id || undefined,
+        partnerName: row.partner_name || undefined,
+        partnerCompanyName: row.partner_company_name || undefined,
+        leadId: row.lead_id || undefined,
+        whatsapp: row.whatsapp || undefined,
+        isWhatsappSame: row.is_whatsapp_same !== null ? !!row.is_whatsapp_same : undefined,
+        altPhone: row.alt_phone || undefined,
+        paxAdult: pAdult,
+        paxChild: pChild,
+        paxInfant: pInfant,
+        serviceType: row.service_type || undefined,
+        residentialAddress: row.residential_address || undefined,
+        officeAddress: row.office_address || undefined,
+        appliedCouponCode: row.applied_coupon_code || undefined,
+        couponDiscountAmount: row.coupon_discount_amount !== null ? Number(row.coupon_discount_amount) : undefined,
+        originalPrice: row.original_price !== null ? Number(row.original_price) : undefined,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : undefined,
+        checklist: parseJsonFieldSafe(row.tour_checklist, undefined),
+    };
+};
+
+const buildDbBookingPayload = (booking: Partial<Booking>) => {
+    const parsedPax = parsePaxString(booking.guests);
+    const finalAdults = booking.paxAdult !== undefined ? booking.paxAdult : parsedPax.adults;
+    const finalChildren = booking.paxChild !== undefined ? booking.paxChild : parsedPax.children;
+    const finalInfants = booking.paxInfant !== undefined ? booking.paxInfant : parsedPax.infants;
+
+    const cleanDate = normalizeCalendarDateYMD(booking.date) || todayDateStr();
+    const cleanEndDate = normalizeCalendarDateYMD(booking.endDate) || null;
+
+    let autoDuration = booking.durationDays || null;
+    if (cleanDate && cleanEndDate) {
+        const span = inclusiveDaysBetween(cleanDate, cleanEndDate);
+        if (span !== null) {
+            autoDuration = span;
+        }
+    }
+
+    const dbBooking: any = {
+        customer_name: booking.customer || 'Unnamed Traveler',
+        customer_email: booking.email || '',
+        customer_phone: booking.phone || '',
+        booking_date: cleanDate,
+        end_date: cleanEndDate,
+        type: booking.type || 'Tour',
+        title: booking.title || 'Unknown',
+        total_price: booking.amount || 0,
+        number_of_people: finalAdults,
+        pax_child: finalChildren,
+        pax_count: finalAdults + finalChildren,
+        duration_days: autoDuration,
+        status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
+        payment_status: booking.payment === 'Paid' ? 'paid' : 'pending',
+        notes: booking.details || '',
+        booking_notes: booking.notes ? JSON.stringify(booking.notes) : '[]',
+        assigned_to: booking.assignedTo || null,
+        assigned_staff_ids: booking.assignedStaffIds || (booking.assignedTo ? [booking.assignedTo] : []),
+        partner_id: booking.partnerId || null,
+        lead_id: booking.leadId || null,
+        whatsapp: booking.whatsapp || null,
+        is_whatsapp_same: booking.isWhatsappSame !== undefined ? (booking.isWhatsappSame ? 1 : 0) : 1,
+        alt_phone: booking.altPhone || null,
+        pax_adult: finalAdults,
+        pax_infant: finalInfants,
+        service_type: booking.serviceType || null,
+        residential_address: booking.residentialAddress || null,
+        office_address: booking.officeAddress || null,
+        applied_coupon_code: booking.appliedCouponCode || null,
+        coupon_discount_amount: booking.couponDiscountAmount || 0.00,
+        original_price: booking.originalPrice || null,
+        customer_id: booking.customerId || null,
+        tour_checklist: booking.checklist ? JSON.stringify(booking.checklist) : null
+    };
+
+    if (booking.packageId) dbBooking.package_id = booking.packageId;
+    return dbBooking;
 };
 
 export const parseStaffListSafe = (rawList: any, primaryId?: any): number[] => {
@@ -695,132 +884,7 @@ export const api = {
             (globalThis as any).__SHRAWELLO_UNLINKED_TXS__ = res.unlinked_transactions;
         }
         const data = res?.data || [];
-        return data.map((row: any) => {
-            const txs = (row.booking_transactions || []).map((t: any) => ({
-                id: t.id,
-                date: t.date,
-                amount: Number(t.amount),
-                type: t.type,
-                method: t.method,
-                reference: t.reference,
-                notes: t.notes,
-                status: t.status || 'Pending',
-                receiptUrl: t.receipt_url,
-                recordedBy: t.recorded_by || 'System'
-            }));
-
-            const totalAmount = Number(row.total_price) || Number(row.amount) || 0;
-            // netPaid = sum of Verified payments minus Verified refunds (Pending & Rejected excluded)
-            const netPaid = txs.reduce((sum: number, t: any) => {
-                if (t.status === 'Verified') {
-                   return sum + (t.type === 'Payment' ? t.amount : t.type === 'Refund' ? -t.amount : 0);
-                }
-                return sum;
-            }, 0);
-
-            // Also compute including-pending so we know if ANY payment exists
-            const grossPaid = txs.reduce((sum: number, t: any) => {
-                if (t.status !== 'Rejected') {
-                    return sum + (t.type === 'Payment' ? t.amount : t.type === 'Refund' ? -t.amount : 0);
-                }
-                return sum;
-            }, 0);
-
-            let dynamicPayment: BookingStatus | 'Paid' | 'Unpaid' | 'Deposit' | 'Refunded' = 'Unpaid';
-            if (row.payment_status === 'paid') dynamicPayment = 'Paid';
-            else if (row.payment_status === 'deposit') dynamicPayment = 'Deposit';
-            else if (row.payment_status === 'refunded') dynamicPayment = 'Refunded';
-            else if (netPaid >= totalAmount && totalAmount > 0) dynamicPayment = 'Paid';
-            else if (netPaid > 0) dynamicPayment = 'Deposit';
-            else if (netPaid < 0) dynamicPayment = 'Refunded';
-            // If no verified txs but pending ones exist, show Deposit so user knows payment is in-progress
-            else if (grossPaid > 0) dynamicPayment = 'Deposit';
-
-            const sbs = (row.supplier_bookings || []).map((sb: any) => ({
-                id: sb.id,
-                bookingId: sb.booking_id,
-                vendorId: sb.vendor_id,
-                serviceType: sb.service_type,
-                confirmationNumber: sb.confirmation_number,
-                cost: Number(sb.cost) || 0,
-                paidAmount: Number(sb.paid_amount) || 0,
-                paymentStatus: sb.payment_status,
-                bookingStatus: sb.booking_status,
-                paymentDueDate: sb.payment_due_date,
-                notes: sb.notes,
-                payments: parseJsonFieldSafe(sb.payments, []),
-                // Live Operations transport fields
-                driverName: sb.driver_name || null,
-                driverPhone: sb.driver_phone || null,
-                vehicleNumber: sb.vehicle_number || null
-            }));
-
-            // Format dates strictly to YYYY-MM-DD using local time parts for <input type="date">
-            const toLocalISO = (d: any) => {
-                if (!d) return '';
-                const dateObj = new Date(d);
-                return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-            };
-            
-            const rawDate = row.booking_date || row.date;
-            const rawEndDate = row.end_date;
-            const formattedDate = toLocalISO(rawDate);
-            const formattedEndDate = toLocalISO(rawEndDate);
-
-            const parsedPaxRow = parsePaxString(row.guests || (row.number_of_people ? `${row.number_of_people} Adults, ${row.pax_child || 0} Children` : ''));
-            const pAdult = (row.pax_adult !== null && row.pax_adult !== undefined) ? Number(row.pax_adult) : (row.number_of_people ? Number(row.number_of_people) : parsedPaxRow.adults);
-            const pChild = (row.pax_child !== null && row.pax_child !== undefined) ? Number(row.pax_child) : parsedPaxRow.children;
-            const pInfant = (row.pax_infant !== null && row.pax_infant !== undefined) ? Number(row.pax_infant) : parsedPaxRow.infants;
-
-            return {
-                id: row.id,
-                bookingNumber: row.booking_number ? Number(row.booking_number) : undefined,
-                type: (row.type ? row.type : 'Tour') as BookingType,
-                customerId: row.customer_id ? String(row.customer_id) : undefined,
-                customer: row.customer_name || 'Anonymous',
-                email: row.customer_email || '',
-                phone: row.customer_phone || '',
-                assignedTo: row.assigned_to ? Number(row.assigned_to) : undefined,
-                assignedStaffIds: parseStaffListSafe(row.assigned_staff_ids, row.assigned_to),
-                title: row.title || row.package_title || 'Unknown Package',
-                date: formattedDate,
-                endDate: formattedEndDate || formattedDate,
-                guests: formatPaxString(pAdult, pChild, pInfant),
-                amount: totalAmount,
-                status: (row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : 'Pending') as BookingStatus,
-                payment: dynamicPayment as any,
-                packageId: row.tour_id || row.package_id,
-                invoiceNo: row.invoice_no || (row.booking_number ? `BK-${String(row.booking_number).padStart(4, '0')}` : (row.id ? `INV-${row.id.slice(0, 8).toUpperCase()}` : '')),
-                transactions: txs,
-                supplierBookings: sbs,
-                notes: parseJsonFieldSafe(row.booking_notes, []),
-                // Live Operations fields from MySQL
-                durationDays: row.duration_days ? Number(row.duration_days) : undefined,
-                paxCount: row.pax_count ? Number(row.pax_count) : (pAdult + pChild),
-                whatsappGroupUrl: row.whatsapp_group_url || undefined,
-                liveStatus: (row.live_status && row.live_status !== 'Auto') ? (row.live_status as any) : undefined,
-                partnerId: row.partner_id || undefined,
-                partnerName: row.partner_name || undefined,
-                partnerCompanyName: row.partner_company_name || undefined,
-                leadId: row.lead_id || undefined,
-                
-                // Mapped Carry-Forward Fields
-                whatsapp: row.whatsapp || undefined,
-                isWhatsappSame: row.is_whatsapp_same !== null ? !!row.is_whatsapp_same : undefined,
-                altPhone: row.alt_phone || undefined,
-                paxAdult: pAdult,
-                paxChild: pChild,
-                paxInfant: pInfant,
-                serviceType: row.service_type || undefined,
-                residentialAddress: row.residential_address || undefined,
-                officeAddress: row.office_address || undefined,
-                appliedCouponCode: row.applied_coupon_code || undefined,
-                couponDiscountAmount: row.coupon_discount_amount !== null ? Number(row.coupon_discount_amount) : undefined,
-                originalPrice: row.original_price !== null ? Number(row.original_price) : undefined,
-                createdAt: row.created_at ? new Date(row.created_at).toISOString() : undefined,
-                checklist: parseJsonFieldSafe(row.tour_checklist, undefined),
-            };
-        });
+        return data.map(mapBookingRow);
     },
 
     getUnlinkedTransactions: (): any[] => {
@@ -874,63 +938,7 @@ export const api = {
         await crud.remove('supplier_bookings', id);
     },
     createBooking: async (booking: Partial<Booking>) => {
-        const parsedPax = parsePaxString(booking.guests);
-        const finalAdults = booking.paxAdult !== undefined ? booking.paxAdult : parsedPax.adults;
-        const finalChildren = booking.paxChild !== undefined ? booking.paxChild : parsedPax.children;
-        const finalInfants = booking.paxInfant !== undefined ? booking.paxInfant : parsedPax.infants;
-
-        // Automatically calculate duration in days from date & endDate if available
-        let autoDuration = booking.durationDays || null;
-        if (booking.date && booking.endDate) {
-            const sD = new Date(booking.date);
-            const eD = new Date(booking.endDate);
-            if (!isNaN(sD.getTime()) && !isNaN(eD.getTime()) && eD >= sD) {
-                const calcSpan = Math.round((eD.getTime() - sD.getTime()) / 86_400_000) + 1;
-                autoDuration = Math.max(calcSpan, booking.durationDays || 1);
-            }
-        }
-
-        const dbBooking: any = {
-            customer_name: booking.customer,
-            customer_email: booking.email || '',
-            customer_phone: booking.phone || '',
-            booking_date: booking.date || new Date().toISOString().split('T')[0],
-            end_date: booking.endDate || null,
-            type: booking.type || 'Tour',
-            title: booking.title || 'Unknown',
-            total_price: booking.amount || 0,
-            number_of_people: finalAdults,
-            pax_child: finalChildren,
-            pax_count: finalAdults + finalChildren,
-            // Store explicit duration so Operations page doesn't need fragile package lookup
-            duration_days: autoDuration,
-            status: booking.status === 'Confirmed' ? 'confirmed' : 'pending',
-            payment_status: booking.payment === 'Paid' ? 'paid' : 'pending', // Enums: pending, paid, failed, refunded
-            notes: booking.details || '',
-            booking_notes: booking.notes ? JSON.stringify(booking.notes) : '[]',
-            assigned_to: booking.assignedTo || null,
-            assigned_staff_ids: booking.assignedStaffIds || (booking.assignedTo ? [booking.assignedTo] : []),
-            partner_id: booking.partnerId || null,
-            lead_id: booking.leadId || null,
-            
-            // New Carry-Forward Fields
-            whatsapp: booking.whatsapp || null,
-            is_whatsapp_same: booking.isWhatsappSame !== undefined ? (booking.isWhatsappSame ? 1 : 0) : 1,
-            alt_phone: booking.altPhone || null,
-            pax_adult: finalAdults,
-            pax_infant: finalInfants,
-            service_type: booking.serviceType || null,
-            residential_address: booking.residentialAddress || null,
-            office_address: booking.officeAddress || null,
-            applied_coupon_code: booking.appliedCouponCode || null,
-            coupon_discount_amount: booking.couponDiscountAmount || 0.00,
-            original_price: booking.originalPrice || null,
-            customer_id: booking.customerId || null,
-            tour_checklist: booking.checklist ? JSON.stringify(booking.checklist) : null
-        };
-
-        if (booking.packageId) dbBooking.package_id = booking.packageId;
-
+        const dbBooking = buildDbBookingPayload(booking);
         const { data } = await crud.create('bookings', dbBooking);
         return data;
     },
@@ -995,15 +1003,16 @@ export const api = {
         if ((updates as any).whatsappGroupUrl !== undefined) {
             dbUpdates.whatsapp_group_url = (updates as any).whatsappGroupUrl || null;
         }
-        // Live Operations: allow updating tour duration directly from Operations page
-        if (updates.durationDays !== undefined) {
-            dbUpdates.duration_days = updates.durationDays || null;
-        } else if (updates.date && updates.endDate) {
-            const sD = new Date(updates.date);
-            const eD = new Date(updates.endDate);
-            if (!isNaN(sD.getTime()) && !isNaN(eD.getTime()) && eD >= sD) {
-                dbUpdates.duration_days = Math.max(1, Math.round((eD.getTime() - sD.getTime()) / 86_400_000) + 1);
+        // Keep duration_days synced whenever date + endDate are provided; never let stale durationDays override explicit dates
+        if (updates.date && updates.endDate) {
+            const span = inclusiveDaysBetween(updates.date, updates.endDate);
+            if (span !== null) {
+                dbUpdates.duration_days = span;
+            } else if (updates.durationDays !== undefined) {
+                dbUpdates.duration_days = updates.durationDays || null;
             }
+        } else if (updates.durationDays !== undefined) {
+            dbUpdates.duration_days = updates.durationDays || null;
         }
         
         // Serialize new carry-forward fields if present in updates
@@ -1054,8 +1063,8 @@ export const api = {
             phone: row.phone,
             location: row.location || '',
             destination: row.destination,
-            startDate: row.start_date,
-            endDate: row.end_date,
+            startDate: normalizeCalendarDateYMD(row.start_date) || undefined,
+            endDate: normalizeCalendarDateYMD(row.end_date) || undefined,
             travelers: row.travelers || 'Unknown',
             budget: row.budget || 'Unknown',
             type: row.type || 'Tour',
@@ -3661,13 +3670,28 @@ export const api = {
     },
 
     // --- TRANSACTIONAL LEAD → BOOKING CONVERSION ---
-    // Uses a single backend transaction to atomically create booking + update lead.
-    // Prevents orphaned bookings if the lead update fails.
-    convertLeadToBooking: async (leadId: string, bookingData: Partial<Booking>): Promise<{ status: string; booking: Booking; leadId: string }> => {
-        return await fetchApi(`/api/leads/${encodeURIComponent(leadId)}/convert`, {
+    // Uses a single backend transaction to atomically sync/create customer + create booking + update lead + log activity.
+    // Prevents partial failures or 403 customer/booking permission mismatches across staff accounts.
+    convertLeadToBooking: async (
+        leadId: string,
+        bookingData: Partial<Booking>,
+        options?: { allowMultiple?: boolean; customerNotes?: any[]; leadPreferences?: any }
+    ): Promise<{ status: string; booking: Booking; leadId: string; customerId?: string }> => {
+        const dbPayload: any = buildDbBookingPayload({ ...bookingData, leadId });
+        if (options?.allowMultiple) dbPayload.allow_multiple = true;
+        if (options?.customerNotes) dbPayload.customer_notes = options.customerNotes;
+        if (options?.leadPreferences) dbPayload.lead_preferences = options.leadPreferences;
+
+        const res = await fetchApi(`/api/leads/${encodeURIComponent(leadId)}/convert`, {
             method: 'POST',
-            body: JSON.stringify(bookingData)
+            body: JSON.stringify(dbPayload)
         });
+        return {
+            status: res.status || 'success',
+            booking: mapBookingRow(res.booking || {}),
+            leadId: res.leadId || leadId,
+            customerId: res.customerId || res.booking?.customer_id || undefined,
+        };
     },
 
     validatePartnerCommission: async (params: {

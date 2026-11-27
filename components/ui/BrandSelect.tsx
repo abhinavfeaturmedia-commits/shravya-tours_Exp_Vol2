@@ -375,7 +375,7 @@ export const BrandSelect = React.forwardRef<HTMLSelectElement, BrandSelectProps>
         ? createPortal(
             isMobileViewport ? (
               <div
-                className="fixed inset-0 z-[400] flex items-end justify-center bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
+                className="fixed inset-0 z-[500] flex items-end justify-center bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
                 onClick={() => closeMenu(true)}
               >
                 <div
@@ -442,7 +442,7 @@ export const BrandSelect = React.forwardRef<HTMLSelectElement, BrandSelectProps>
                   top: coords.placeAbove ? undefined : `${coords.top}px`,
                   bottom: coords.placeAbove ? `${window.innerHeight - coords.top}px` : undefined,
                 }}
-                className={`z-[400] border rounded-2xl shadow-2xl p-1.5 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150 ${
+                className={`z-[500] border rounded-2xl shadow-2xl p-1.5 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150 ${
                   tone === 'dark'
                     ? 'bg-[#0F172A] border-slate-700/80 shadow-black/60 text-white'
                     : 'bg-white dark:bg-[#0F172A] border-slate-200/90 dark:border-slate-700/80 shadow-slate-900/15 dark:shadow-black/60'

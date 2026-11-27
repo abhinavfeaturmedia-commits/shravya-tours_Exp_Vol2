@@ -1798,7 +1798,7 @@ export const Attendance: React.FC = () => {
 
             {/* MODAL: STAFF SESSIONS TIMELINE INSPECTOR */}
             {inspectingStaffItem && (
-                <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-5 max-h-[90vh] overflow-y-auto">
                         <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
                             <div className="flex items-center gap-3.5">
@@ -1938,7 +1938,7 @@ export const Attendance: React.FC = () => {
 
             {/* MODAL 1: EDIT / ADJUST ATTENDANCE */}
             {editingItem && (
-                <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
                         <div className="flex items-center justify-between">
                             <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
@@ -2019,7 +2019,7 @@ export const Attendance: React.FC = () => {
 
             {/* MODAL 2: APPLY LEAVE */}
             {showApplyLeaveModal && (
-                <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
                     <form onSubmit={handleApplyLeave} className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
                         <div className="flex items-center justify-between">
                             <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Apply for Leave</h3>
@@ -2119,7 +2119,7 @@ export const Attendance: React.FC = () => {
 
             {/* MODAL 3: REQUEST REGULARIZATION */}
             {showRegularizeModal && (
-                <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
                     <form onSubmit={handleRegularizeSubmit} className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
                         <div className="flex items-center justify-between">
                             <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Request Regularization</h3>
@@ -2205,7 +2205,7 @@ export const Attendance: React.FC = () => {
 
             {/* MODAL 4: REJECT LEAVE REASON */}
             {rejectingLeaveId && (
-                <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3">
                         <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Reject Leave Request</h3>
                         <p className="text-xs text-slate-400">Please provide a reason for rejecting this leave application.</p>

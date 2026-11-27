@@ -8,7 +8,7 @@ import { SupplierManagementModal } from '../../components/admin/SupplierManageme
 import { BookingAvailabilityModal } from '../../components/admin/BookingAvailabilityModal';
 import { LedgerManagementModal } from '../../components/admin/LedgerManagementModal';
 import { TourChecklistModal } from '../../components/admin/TourChecklistModal';
-import { getBookingReadiness, getBalanceFlag, parseDay, startOfToday, READINESS_STYLES, BALANCE_FLAG_STYLES } from '../../utils/tourReadiness';
+import { getBookingReadiness, getBalanceFlag, parseDay, startOfToday, addDaysToDateStr, inclusiveDaysBetween, READINESS_STYLES, BALANCE_FLAG_STYLES } from '../../utils/tourReadiness';
 
 import { ActionMenu } from '../../components/ui/ActionMenu';
 import { SuggestPopup, isDismissed, isSnoozed } from '../../components/ui/SuggestPopup';
@@ -712,10 +712,7 @@ export const Bookings: React.FC = () => {
         
         let calculatedEndDate = formData.date;
         if (selectedPkg && selectedPkg.days) {
-            const startDate = new Date(formData.date);
-            const endDate = new Date(startDate);
-            endDate.setDate(startDate.getDate() + (selectedPkg.days - 1));
-            calculatedEndDate = endDate.toISOString().split('T')[0];
+            calculatedEndDate = addDaysToDateStr(formData.date, Math.max(0, selectedPkg.days - 1)) || formData.date;
         }
 
         let calculatedAmount = formData.amount;
@@ -794,7 +791,7 @@ export const Bookings: React.FC = () => {
                 title: formData.title || `${formData.type} Booking`,
                 date: formData.date,
                 endDate: formData.endDate,
-                durationDays: formData.durationDays || (packages?.find(p => p.id === formData.packageId)?.days) || 1,
+                durationDays: inclusiveDaysBetween(formData.date, formData.endDate) ?? formData.durationDays ?? (packages?.find(p => p.id === formData.packageId)?.days) ?? 1,
                 amount: Number(formData.amount) || 0,
                 status: formData.status,
                 payment: formData.payment as any,
@@ -2634,15 +2631,13 @@ export const Bookings: React.FC = () => {
                                         <label className="text-xs font-bold text-slate-500">Start Date</label>
                                         <BrandDatePicker type="date" value={formData.date} onChange={e => {
                                             const newStartDate = e.target.value;
-                                            // Try to keep the duration same if existing end date
+                                            // Keep existing inclusive day span when shifting Start Date
                                             setFormData(prev => {
                                                 const updates: any = { ...prev, date: newStartDate };
-                                                if (prev.endDate && prev.date) {
-                                                    const start = new Date(prev.date);
-                                                    const end = new Date(prev.endDate);
-                                                    const duration = end.getTime() - start.getTime();
-                                                    const newEnd = new Date(new Date(newStartDate).getTime() + duration);
-                                                    updates.endDate = newEnd.toISOString().split('T')[0];
+                                                const existingSpan = inclusiveDaysBetween(prev.date, prev.endDate) ?? (prev.durationDays && prev.durationDays > 0 ? prev.durationDays : null);
+                                                if (existingSpan && newStartDate) {
+                                                    updates.endDate = addDaysToDateStr(newStartDate, existingSpan - 1) || newStartDate;
+                                                    updates.durationDays = existingSpan;
                                                 }
                                                 return updates;
                                             });
@@ -2650,7 +2645,17 @@ export const Bookings: React.FC = () => {
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">End Date</label>
-                                        <BrandDatePicker type="date" min={formData.date} value={formData.endDate} onChange={e => setFormData({ ...formData, endDate: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                                        <BrandDatePicker type="date" min={formData.date} value={formData.endDate} onChange={e => {
+                                            const newEndDate = e.target.value;
+                                            setFormData(prev => {
+                                                const span = inclusiveDaysBetween(prev.date, newEndDate);
+                                                return {
+                                                    ...prev,
+                                                    endDate: newEndDate,
+                                                    durationDays: span ?? prev.durationDays
+                                                };
+                                            });
+                                        }} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-xs font-bold text-slate-500">Total Amount (₹)</label>

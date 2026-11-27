@@ -235,7 +235,14 @@ export function createPermissionGuard(pool) {
                 return next();
             }
 
-            const allowed = permissions[module]?.[action] ?? false;
+            let allowed = permissions[module]?.[action] ?? false;
+            if (!allowed && table === 'bookings' && method === 'POST') {
+                const hasCreateBookingFeat = permissions.bookings?.features?.create_booking === true;
+                const hasConvertLeadPerm = Boolean(req.body?.lead_id) && Boolean(permissions.leads?.manage) && permissions.leads?.features?.convert_to_booking !== false;
+                if (hasCreateBookingFeat || hasConvertLeadPerm) {
+                    allowed = true;
+                }
+            }
             if (!allowed) {
                 console.warn(`[Permission Denied] User ${req.user?.email} lacks '${action}' permission for table '${table}' (Module: ${module})`);
                 return res.status(403).json({ error: `Unauthorized: You do not have permission to ${action} this module (${module}).` });

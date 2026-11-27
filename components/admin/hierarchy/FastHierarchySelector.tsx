@@ -748,7 +748,7 @@ export const FastHierarchySelector: React.FC<FastHierarchySelectorProps> = ({
 
       {/* ─── Visual Org Chart Selection Modal ─── */}
       {isOrgChartModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="w-full max-w-7xl max-h-[94vh] flex flex-col rounded-3xl overflow-hidden shadow-2xl border border-white/20">
             <ShrawelloOrgChart
               staff={staff}

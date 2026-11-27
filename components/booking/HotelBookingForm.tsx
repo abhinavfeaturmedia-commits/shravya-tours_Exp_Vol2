@@ -263,7 +263,7 @@ export const HotelBookingForm: React.FC<HotelBookingFormProps> = ({ onSubmit }) 
                             if (isMobileViewport) {
                                 return (
                                     <div
-                                        className="fixed inset-0 z-[400] flex items-end justify-center bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
+                                        className="fixed inset-0 z-[500] flex items-end justify-center bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150"
                                         onClick={() => closeGuestMenu(true)}
                                     >
                                         <div

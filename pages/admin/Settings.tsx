@@ -339,7 +339,7 @@ const CompanySection: React.FC = () => {
 
       {/* Live Email Preview Modal */}
       {previewTheme && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
           <div 
             className="w-full max-w-3xl bg-white dark:bg-[#0f172a] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-[85vh]"
             onClick={e => e.stopPropagation()}

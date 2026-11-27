@@ -1,6 +1,20 @@
-import { formatTripDuration } from '../utils/packageUtils';
+import { MasterLocation } from '../types';
+import { formatTripDuration, getLocationName, getPackagePricingInfo } from '../utils/packageUtils';
 
 export type TourCategoryType = 'Heritage' | 'Hills' | 'Beach' | 'Spiritual' | 'Wildlife' | 'Honeymoon';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const INTERNATIONAL_KEYWORDS = [
+  'bali', 'dubai', 'uae', 'thailand', 'bangkok', 'phuket', 'vietnam', 'hanoi',
+  'da nang', 'singapore', 'malaysia', 'switzerland', 'europe', 'maldives',
+  'mauritius', 'paris', 'london', 'turkey', 'egypt', 'japan', 'australia',
+  'sri lanka', 'nepal', 'bhutan', 'international', 'abroad', 'overseas',
+];
+
+export function isInternationalDestination(text: string): boolean {
+  const lower = text.toLowerCase();
+  return INTERNATIONAL_KEYWORDS.some((kw) => lower.includes(kw));
+}
 
 export interface TourPackage {
   id: string;
@@ -10,6 +24,7 @@ export interface TourPackage {
   duration: string; // e.g. "6 Days / 5 Nights"
   daysCount: number;
   startingPrice: number;
+  isInternational?: boolean;
   badge?: string;
   image: string;
   fallbackImage: string;
@@ -344,6 +359,7 @@ export const TOUR_PACKAGES: TourPackage[] = [
     duration: '6 Days / 5 Nights',
     daysCount: 6,
     startingPrice: 34999,
+    isInternational: true,
     badge: 'International Luxury',
     image: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=800&q=80&auto=format&fit=crop',
     fallbackImage: 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?w=800&q=80&auto=format&fit=crop',
@@ -354,7 +370,10 @@ export const TOUR_PACKAGES: TourPackage[] = [
   }
 ];
 
-export function getTourCatalogFromPackages(realPackages: any[] = []): { categories: TourCategory[]; packages: TourPackage[] } {
+export function getTourCatalogFromPackages(
+  realPackages: any[] = [],
+  masterLocations: MasterLocation[] = []
+): { categories: TourCategory[]; packages: TourPackage[] } {
   if (!realPackages || realPackages.length === 0) {
     return { categories: TOUR_CATEGORIES, packages: TOUR_PACKAGES };
   }
@@ -367,7 +386,12 @@ export function getTourCatalogFromPackages(realPackages: any[] = []): { categori
   }
 
   const mappedPackages: TourPackage[] = validPkgs.map((p) => {
-    const rawTheme = (p.theme || p.tag || p.location || 'Heritage').toLowerCase();
+    const resolvedLocation = getLocationName(p.location, masterLocations);
+    const cleanDestination = resolvedLocation && !UUID_REGEX.test(resolvedLocation.trim())
+      ? resolvedLocation.trim()
+      : 'India';
+
+    const rawTheme = `${p.theme || ''} ${p.tag || ''} ${cleanDestination} ${p.title || ''}`.toLowerCase();
     let categoryId: TourCategoryType = 'Heritage';
 
     if (rawTheme.includes('hill') || rawTheme.includes('mountain') || rawTheme.includes('snow') || rawTheme.includes('scenic') || rawTheme.includes('kashmir') || rawTheme.includes('himachal') || rawTheme.includes('manali') || rawTheme.includes('ladakh')) {
@@ -384,8 +408,12 @@ export function getTourCatalogFromPackages(realPackages: any[] = []): { categori
       categoryId = 'Heritage';
     }
 
-    const durationStr = formatTripDuration({ nights: p.days ? Math.max(0, p.days - 1) : 4, days: p.days || 5 });
-    
+    const daysCount = Math.max(1, Number(p.days) || 5);
+    const durationStr = formatTripDuration({ nights: Math.max(0, daysCount - 1), days: daysCount });
+    const pricing = getPackagePricingInfo(p);
+    const startingPrice = pricing.perPersonPrice > 0 ? pricing.perPersonPrice : Math.round(Number(p.price) || 9999);
+    const international = isInternationalDestination(`${p.title || ''} ${cleanDestination} ${p.theme || ''} ${p.tag || ''}`);
+
     // Normalize inclusions
     const inclusionsList = Array.isArray(p.included) && p.included.length > 0
       ? p.included
@@ -400,10 +428,11 @@ export function getTourCatalogFromPackages(realPackages: any[] = []): { categori
       id: p.id,
       name: p.title || p.name || 'Custom Tour Package',
       categoryId,
-      destination: p.location || 'India',
+      destination: cleanDestination,
       duration: durationStr,
-      daysCount: p.days || 5,
-      startingPrice: p.price || 9999,
+      daysCount,
+      startingPrice,
+      isInternational: international,
       badge: p.tag || (p.originalPrice ? 'Special Discount' : undefined),
       image: p.image || 'https://images.unsplash.com/photo-1599661046289-e31897846e41?w=800&q=80&auto=format&fit=crop',
       fallbackImage: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80&auto=format&fit=crop',
@@ -414,15 +443,14 @@ export function getTourCatalogFromPackages(realPackages: any[] = []): { categori
     };
   });
 
-  // Calculate dynamic count & top packages per category
+  // Calculate accurate dynamic count & top packages per category
   const dynamicCategories: TourCategory[] = TOUR_CATEGORIES.map(cat => {
     const catPackages = mappedPackages.filter(p => p.categoryId === cat.id);
-    const count = catPackages.length;
     const topPackages = catPackages.slice(0, 3).map(p => p.name);
 
     return {
       ...cat,
-      count: count > 0 ? count : cat.count,
+      count: catPackages.length,
       topPackages: topPackages.length > 0 ? topPackages : cat.topPackages
     };
   });

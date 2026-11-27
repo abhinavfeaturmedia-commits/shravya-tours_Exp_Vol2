@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { api } from '../lib/api';
-import { Lead } from '../../types';
+import { Lead, Booking } from '../../types';
 import { toast } from 'sonner';
 
 export const useLeads = () => {
@@ -158,6 +158,28 @@ export const useLeads = () => {
         }
     });
 
+    const convertLeadMutation = useMutation({
+        mutationFn: ({
+            leadId,
+            bookingData,
+            options,
+        }: {
+            leadId: string;
+            bookingData: Partial<Booking>;
+            options?: { allowMultiple?: boolean; customerNotes?: any[]; leadPreferences?: any };
+        }) => api.convertLeadToBooking(leadId, bookingData, options),
+        onSuccess: (res) => {
+            queryClient.invalidateQueries({ queryKey: ['leads'] });
+            queryClient.invalidateQueries({ queryKey: ['bookings'] });
+            window.dispatchEvent(new CustomEvent('leads-changed'));
+            window.dispatchEvent(new CustomEvent('bookings-changed', {
+                detail: { id: res.booking?.id, updates: res.booking }
+            }));
+            window.dispatchEvent(new CustomEvent('customers-changed'));
+            window.dispatchEvent(new CustomEvent('leads-bookings-synced'));
+        },
+    });
+
     return {
         leads,
         isLoading,
@@ -168,6 +190,11 @@ export const useLeads = () => {
         addLeadLog: (id: string, log: any) => addLeadLogMutation.mutateAsync({ id, log }),
         updateLeadLog: (logId: string, content: string) => updateLeadLogMutation.mutate({ logId, content }),
         deleteLeadLog: (logId: string) => deleteLeadLogMutation.mutate(logId),
+        convertLeadToBooking: (
+            leadId: string,
+            bookingData: Partial<Booking>,
+            options?: { allowMultiple?: boolean; customerNotes?: any[]; leadPreferences?: any }
+        ) => convertLeadMutation.mutateAsync({ leadId, bookingData, options }),
         refetchLeads: refetch
     };
 };

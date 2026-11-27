@@ -223,7 +223,7 @@ export const PartnerLeads: React.FC = () => {
 
       {/* Sliding Drawer */}
       {selectedLead && (
-        <div role="dialog" aria-modal="true" aria-label={`Lead details for ${selectedLead.name}`} className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedLead(null)}>
+        <div role="dialog" aria-modal="true" aria-label={`Lead details for ${selectedLead.name}`} className="fixed inset-0 z-[300] overflow-hidden bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedLead(null)}>
           <div className="absolute inset-y-0 right-0 max-w-full flex pl-10">
             <div className="w-screen max-w-lg transform bg-slate-950 border-l border-white/10 shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-300" onClick={e => e.stopPropagation()}>
               

@@ -2129,7 +2129,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                 MODAL 1: CREATE INCENTIVE RUN
                ═══════════════════════════════════════════════════════════════════════ */}
             {showCreateRunModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 w-full max-w-lg p-6 space-y-6">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
                             <div className="flex items-center gap-2.5">
@@ -2239,7 +2239,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                 MODAL 2: EMPLOYEE SUMMARY TRACE BREAKDOWN
                ═══════════════════════════════════════════════════════════════════════ */}
             {selectedSummaryForModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 w-full max-w-2xl p-6 space-y-6 max-h-[90vh] overflow-y-auto">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
                             <div>
@@ -2308,7 +2308,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                 MODAL 3: LEDGER FORMULA POPUP
                ═══════════════════════════════════════════════════════════════════════ */}
             {selectedLedgerItemForTrace && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     {(() => {
                         const itemTrace = parseTrace(selectedLedgerItemForTrace.calculation_trace);
                         return (
@@ -2392,7 +2392,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                 MODAL 4: ADD ADJUSTMENT
                ═══════════════════════════════════════════════════════════════════════ */}
             {showAdjustmentModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 w-full max-w-md p-6 space-y-4">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                             <h3 className="font-bold text-slate-900 dark:text-white text-base">Record Incentive Adjustment</h3>
@@ -2512,7 +2512,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                 MODAL 5: MARK PAYOUT PAID
                ═══════════════════════════════════════════════════════════════════════ */}
             {showPayoutModal && selectedPayout && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 w-full max-w-md p-6 space-y-4">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                             <h3 className="font-bold text-slate-900 dark:text-white text-base">Disburse & Lock Payout</h3>
@@ -2586,7 +2586,7 @@ export const Incentives: React.FC<IncentivesProps> = ({ defaultTab = 'overview' 
                 MODAL 6: RAISE DISPUTE
                ═══════════════════════════════════════════════════════════════════════ */}
             {showDisputeModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 w-full max-w-md p-6 space-y-4">
                         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                             <h3 className="font-bold text-slate-900 dark:text-white text-base">Raise Incentive Review / Dispute</h3>

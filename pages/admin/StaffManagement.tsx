@@ -1970,7 +1970,7 @@ export const StaffManagement: React.FC = () => {
                         </div>
 
                         {/* Details Panel (Right/Sticky Column) */}
-                        <div className={`lg:col-span-1 lg:sticky lg:top-6 self-start ${selectedStaffId ? 'fixed inset-0 z-[60] lg:static lg:z-auto' : 'hidden lg:block'}`}>
+                        <div className={`lg:col-span-1 lg:sticky lg:top-6 self-start ${selectedStaffId ? 'fixed inset-0 z-[250] lg:static lg:z-auto' : 'hidden lg:block'}`}>
                             {selectedMember ? (
                                 <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-sm border border-slate-200/80 dark:border-slate-800 flex flex-col h-full md:h-auto overflow-hidden animate-in fade-in slide-in-from-right-4">
                                     {/* Cover Header Banner */}

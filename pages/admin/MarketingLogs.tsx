@@ -1639,7 +1639,7 @@ export const MarketingLogs: React.FC = () => {
             {/* MODAL: ASSIGN MARKETING TASK */}
             {/* ======================================================== */}
             {isTaskModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/80 dark:bg-slate-850">
                             <div className="flex items-center gap-2">
@@ -1783,7 +1783,7 @@ export const MarketingLogs: React.FC = () => {
             {/* MODAL: LOG CONTENT POST */}
             {/* ======================================================== */}
             {isContentModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-purple-50/50 dark:bg-slate-850">
                             <div className="flex items-center gap-2">
@@ -1945,7 +1945,7 @@ export const MarketingLogs: React.FC = () => {
             {/* MODAL: TRACK CAMPAIGN / ADS / OFFLINE OUTCOMES */}
             {/* ======================================================== */}
             {isCampaignModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-emerald-50/50 dark:bg-slate-850">
                             <div className="flex items-center gap-2">
@@ -2096,7 +2096,7 @@ export const MarketingLogs: React.FC = () => {
             {/* MODAL: UPDATE SOCIAL MEDIA STATS */}
             {/* ======================================================== */}
             {isSocialModalOpen && selectedSocialAccount && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden flex flex-col">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-pink-50/50 dark:bg-slate-850">
                             <div className="flex items-center gap-2">
@@ -2159,7 +2159,7 @@ export const MarketingLogs: React.FC = () => {
             {/* MODAL: DAILY MARKETING CHECK-IN LOG (MYSQL) */}
             {/* ======================================================== */}
             {isLogModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/80 dark:bg-slate-850">
                             <div className="flex items-center gap-2">
@@ -2284,7 +2284,7 @@ export const MarketingLogs: React.FC = () => {
             {/* MODAL: AI STANDUP SUMMARY */}
             {/* ======================================================== */}
             {isAiModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+                <div className="fixed inset-0 z-[300] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
                         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-slate-850 dark:to-slate-800">
                             <div className="flex items-center gap-2">

@@ -6,18 +6,11 @@ import { api } from '../src/lib/api';
 import { toast } from 'sonner';
 import { Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart, Line } from 'recharts';
 import { formatPrice, formatPriceCompact } from '../utils/packageUtils';
+import { parseDay, todayDateStr, resolveTourDuration, getTourProgress } from '../utils/tourReadiness';
 import BrandSelect from '../components/ui/BrandSelect';
 
 // Timezone-safe local date parser
-const parseLocalDate = (dateStr?: string): Date | null => {
-    if (!dateStr) return null;
-    const parts = dateStr.split('T')[0].split('-');
-    if (parts.length !== 3) return new Date(dateStr);
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[2], 10);
-    return new Date(year, month, day);
-};
+const parseLocalDate = (dateStr?: string): Date | null => parseDay(dateStr);
 
 export const AdminDashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -37,7 +30,7 @@ export const AdminDashboard: React.FC = () => {
     const [duesTab, setDuesTab] = useState<'all' | 'receivables' | 'payables'>('all');
     const [duesHorizon, setDuesHorizon] = useState<'all' | '7d' | 'overdue'>('7d');
     const [showAllDues, setShowAllDues] = useState(false);
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayDateStr();
 
     useEffect(() => {
         setUnlinkedTransactions(api.getUnlinkedTransactions());
@@ -493,16 +486,7 @@ export const AdminDashboard: React.FC = () => {
             const start = parseLocalDate(b.date);
             if (!start) return false;
 
-            let duration = b.durationDays || 1;
-            if (b.endDate) {
-                const endD = parseLocalDate(b.endDate);
-                if (endD && endD >= start) {
-                    duration = Math.max(Math.round((endD.getTime() - start.getTime()) / 86_400_000) + 1, duration);
-                }
-            } else {
-                const pkg = packages?.find((p: any) => p.id === b.packageId || p.title === b.title);
-                if (pkg?.days) duration = pkg.days;
-            }
+            const { duration } = resolveTourDuration(b, packages);
 
             const end = new Date(start);
             end.setDate(start.getDate() + (duration - 1));
@@ -510,21 +494,8 @@ export const AdminDashboard: React.FC = () => {
 
             return todayNow >= start && todayNow <= end;
         }).map(b => {
-            const start = parseLocalDate(b.date)!;
-            let duration = b.durationDays || 1;
-            if (b.endDate) {
-                const endD = parseLocalDate(b.endDate);
-                if (endD && endD >= start) {
-                    duration = Math.max(Math.round((endD.getTime() - start.getTime()) / 86_400_000) + 1, duration);
-                }
-            } else {
-                const pkg = packages?.find((p: any) => p.id === b.packageId || p.title === b.title);
-                if (pkg?.days) duration = pkg.days;
-            }
-
-            const diffDays = Math.round((todayNow.getTime() - start.getTime()) / 86_400_000) + 1;
-            const currentDay = Math.min(Math.max(diffDays, 1), duration);
-            const percent = Math.min(Math.max(Math.round((currentDay / duration) * 100), 5), 100);
+            const { duration } = resolveTourDuration(b, packages);
+            const { day: currentDay, percent } = getTourProgress(b.date, duration);
 
             const pkg = packages?.find((p: any) => p.id === b.packageId || p.title === b.title);
             const dayItinerary = pkg?.itinerary?.[currentDay - 1];

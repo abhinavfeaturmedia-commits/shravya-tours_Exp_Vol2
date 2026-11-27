@@ -8,12 +8,44 @@ import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContex
 import { VoiceBeam, useMicrophone } from 'voice-glow';
 import { toast } from 'sonner';
 import { BrandSelect } from '../components/ui/BrandSelect';
+import {
+  PACKAGE_CATEGORY_TABS,
+  PackageCategorySlug,
+  matchesPackageCategory,
+  normalizeCategorySlug,
+} from '../src/data/megaMenuCatalog';
+import {
+  FullPageCrystalSnowCanvas,
+  SeasonalFestiveToolbar,
+  SeasonalSnowCap,
+  WalkingSantaAndSleigh,
+} from '../components/ui/SeasonalSantaExperience';
 
 export const Packages: React.FC = () => {
   const { packages, masterLocations, trendingDestinations } = useData();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || '';
   const destinationId = searchParams.get('destinationId') || '';
+  const activeCategory = normalizeCategorySlug(searchParams.get('category'));
+  const isSeasonalPage = activeCategory === 'seasonal';
+  const urlTheme = searchParams.get('theme') || '';
+
+  const [festiveEffectsEnabled, setFestiveEffectsEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return true;
+    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
+  const [sleighTriggerKey, setSleighTriggerKey] = useState(0);
+  const [quickGiftOpenKey, setQuickGiftOpenKey] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = (e: MediaQueryListEvent) => {
+      setFestiveEffectsEnabled(!e.matches);
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   const { isAuthenticated } = useCustomerAuth();
   const navigate = useNavigate();
@@ -90,7 +122,20 @@ export const Packages: React.FC = () => {
   useEffect(() => {
     setSearchQuery(searchParams.get('search') || '');
     setDebouncedSearch(searchParams.get('search') || '');
-  }, [searchParams]);
+    if (urlTheme) {
+      setSelectedThemes([urlTheme]);
+    }
+  }, [searchParams, urlTheme]);
+
+  const handleCategoryChange = (cat: PackageCategorySlug) => {
+    const next = new URLSearchParams(searchParams);
+    if (cat === 'all') {
+      next.delete('category');
+    } else {
+      next.set('category', cat);
+    }
+    setSearchParams(next);
+  };
 
   // Debounce search input so heavy filter runs only 250ms after user stops typing
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -215,6 +260,11 @@ export const Packages: React.FC = () => {
       }
     }
 
+    // Filter by URL ?category= (domestic, international, honeymoon, group, seasonal, corporate, trending)
+    if (!matchesPackageCategory(pkg, activeCategory, masterLocations)) {
+      return false;
+    }
+
     // Price: bypass filter entirely when slider is at max
     const matchesPrice = priceRange >= 200000 || pkg.price <= priceRange;
     // Duration: bypass when slider is at max (or null = all)
@@ -239,7 +289,7 @@ export const Packages: React.FC = () => {
     });
 
     return matchesPrice && matchesDuration && matchesTheme && matchesSearch;
-  }), [packages, priceRange, duration, maxDuration, selectedThemes, debouncedSearch, masterLocations, destinationId, trendingDestinations]);
+  }), [packages, activeCategory, priceRange, duration, maxDuration, selectedThemes, debouncedSearch, masterLocations, destinationId, trendingDestinations]);
 
   const sortedPackages = useMemo(() => [...filteredPackages].sort((a, b) => {
     if (sortOption === 'Price: Low to High') return a.price - b.price;
@@ -254,13 +304,19 @@ export const Packages: React.FC = () => {
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
+    if (activeCategory !== 'all') count++;
     if (debouncedSearch.trim()) count++;
     if (priceRange < 200000) count++;
     if (duration !== null) count++;
     if (selectedThemes.length > 0) count += selectedThemes.length;
     if (destinationId) count++;
     return count;
-  }, [debouncedSearch, priceRange, duration, selectedThemes, destinationId]);
+  }, [activeCategory, debouncedSearch, priceRange, duration, selectedThemes, destinationId]);
+
+  const activeCategoryMeta = useMemo(
+    () => PACKAGE_CATEGORY_TABS.find((t) => t.id === activeCategory) || PACKAGE_CATEGORY_TABS[0],
+    [activeCategory]
+  );
 
   return (
     <>
@@ -271,21 +327,70 @@ export const Packages: React.FC = () => {
         canonical="https://shrawellotravels.com/packages"
       />
 
-      <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pt-24 md:pt-28 pb-32 md:pb-20">
+      <div className="bg-slate-50 dark:bg-[#0B1116] min-h-screen pt-24 md:pt-28 pb-32 md:pb-20 relative">
+        {isSeasonalPage && (
+          <>
+            <FullPageCrystalSnowCanvas enabled={festiveEffectsEnabled} />
+            <WalkingSantaAndSleigh
+              enabled={festiveEffectsEnabled}
+              sleighTriggerKey={sleighTriggerKey}
+              quickOpenKey={quickGiftOpenKey}
+              activeCategory={activeCategory}
+              searchQuery={debouncedSearch}
+            />
+          </>
+        )}
 
         <div className="container mx-auto px-4 md:px-8 relative">
           {/* Header Section */}
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6 mb-8 md:mb-16 animate-in slide-in-from-bottom-5 duration-700">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6 mb-6 md:mb-8 animate-in slide-in-from-bottom-5 duration-700">
             <div className="max-w-2xl">
-              <h1 className="font-display text-3.5xl sm:text-5xl md:text-7xl font-bold text-slate-900 dark:text-white tracking-tight leading-[1.08] mb-3 italic">
-                Explore the <br className="hidden sm:inline" />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Unseen World.</span>
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-black uppercase tracking-widest mb-3">
+                <span className="material-symbols-outlined text-[15px]" aria-hidden="true">{activeCategoryMeta.icon}</span>
+                <span>{activeCategoryMeta.label}</span>
+              </div>
+              <h1 className="font-display text-3.5xl sm:text-5xl md:text-6xl font-bold text-slate-900 dark:text-white tracking-tight leading-[1.08] mb-3 italic">
+                {activeCategory === 'all' ? (
+                  <>
+                    Explore the <br className="hidden sm:inline" />
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent">Unseen World.</span>
+                  </>
+                ) : (
+                  <>
+                    {activeCategoryMeta.label}
+                    {debouncedSearch ? ` · ${debouncedSearch}` : '.'}
+                  </>
+                )}
               </h1>
-              <p className="text-sm sm:text-base md:text-lg text-slate-500 dark:text-slate-400 font-light">Curated itineraries for the modern traveler. Find your next adventure below.</p>
+              <p className="text-sm sm:text-base md:text-lg text-slate-500 dark:text-slate-400 font-light">
+                {activeCategoryMeta.description}
+              </p>
+
+              {/* Festive Controls Bar (Visible on both Mobile & Desktop strictly on ?category=seasonal) */}
+              {isSeasonalPage && (
+                <div className="mt-4">
+                  <SeasonalFestiveToolbar
+                    effectsEnabled={festiveEffectsEnabled}
+                    onToggleEffects={() => setFestiveEffectsEnabled((prev) => !prev)}
+                    onSummonSleigh={() => {
+                      if (!festiveEffectsEnabled) setFestiveEffectsEnabled(true);
+                      setSleighTriggerKey((k) => k + 1);
+                    }}
+                    onOpenGiftQuick={() => setQuickGiftOpenKey((k) => k + 1)}
+                  />
+                </div>
+              )}
             </div>
 
-            {/* Desktop Sort */}
-            <div className="hidden lg:flex items-center gap-3">
+            {/* Desktop Sort & Customizer CTA */}
+            <div className="hidden lg:flex items-center gap-3 shrink-0">
+              <Link
+                to={`/customize?category=${activeCategory === 'all' ? 'domestic' : activeCategory}${debouncedSearch ? `&destination=${encodeURIComponent(debouncedSearch)}` : ''}`}
+                className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold hover:bg-primary dark:hover:bg-primary dark:hover:text-white transition-all shadow-sm"
+              >
+                <span className="material-symbols-outlined text-[16px]" aria-hidden="true">auto_awesome</span>
+                <span>Customize Trip</span>
+              </Link>
               <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Sort By</span>
               <BrandSelect
                 value={sortOption}
@@ -299,6 +404,28 @@ export const Packages: React.FC = () => {
                 <option>Duration</option>
               </BrandSelect>
             </div>
+          </div>
+
+          {/* Interactive Category Switcher Pills */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-4 mb-6 md:mb-10">
+            {PACKAGE_CATEGORY_TABS.map((tab) => {
+              const isSelected = activeCategory === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => handleCategoryChange(tab.id)}
+                  className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold whitespace-nowrap border transition-all shrink-0 ${
+                    isSelected
+                      ? 'bg-primary text-white border-primary shadow-md shadow-primary/25'
+                      : 'bg-white dark:bg-[#151d29] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-primary/40 hover:text-primary'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[17px]" aria-hidden="true">{tab.icon}</span>
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex flex-col lg:flex-row gap-6 lg:gap-12">
@@ -579,6 +706,9 @@ export const Packages: React.FC = () => {
                           to={`/packages/${pkg.id}`}
                           className="group relative flex flex-col h-[430px] sm:h-[450px] w-full rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-1.5 cursor-pointer border border-white/10 bg-[#0B1116]"
                         >
+                          {/* ── SCOPED SEASONAL SNOW CAP ── */}
+                          {isSeasonalPage && <SeasonalSnowCap />}
+
                           {/* ── FULL-BLEED IMAGE ── */}
                           <OptimizedImage
                             src={pkg.image}
@@ -590,7 +720,7 @@ export const Packages: React.FC = () => {
                           <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/60 via-45% to-black/20 pointer-events-none" />
 
                           {/* ── TOP BAR: CENTER BESTSELLER PILL + SUBTLE WISHLIST ── */}
-                          <div className="absolute top-3.5 left-3.5 right-3.5 z-20 flex items-center justify-between pointer-events-none">
+                          <div className={`absolute left-3.5 right-3.5 z-20 flex items-center justify-between pointer-events-none ${isSeasonalPage ? 'top-5' : 'top-3.5'}`}>
                             <div className="w-8 shrink-0" />
 
                             <div className="flex-1 flex justify-center">
@@ -668,13 +798,26 @@ export const Packages: React.FC = () => {
                     );
                   })
                 ) : (
-                  <div className="col-span-full py-32 text-center">
+                  <div className="col-span-full py-24 text-center">
                     <div className="size-24 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6">
                       <span className="material-symbols-outlined text-5xl text-slate-400">travel_explore</span>
                     </div>
-                    <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">No journeys found</h3>
-                    <p className="text-slate-500 max-w-xs mx-auto mb-8">We couldn't find any packages matching your filters. Try adjusting your search.</p>
-                    <button onClick={handleReset} className="px-8 py-3 bg-primary text-white font-bold rounded-xl hover:bg-primary-dark transition-colors shadow-lg shadow-primary/20">Clear All Filters</button>
+                    <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">No exact pre-built packages found</h3>
+                    <p className="text-slate-500 max-w-md mx-auto mb-8">
+                      We can craft a 100% customized itinerary {debouncedSearch ? `for "${debouncedSearch}"` : ''} tailored to your dates, hotel preference, and budget.
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <Link
+                        to={`/customize?category=${activeCategory === 'all' ? 'domestic' : activeCategory}${debouncedSearch ? `&destination=${encodeURIComponent(debouncedSearch)}` : ''}`}
+                        className="inline-flex items-center gap-2 px-8 py-3.5 bg-gradient-to-r from-primary to-orange-600 text-white font-bold rounded-full hover:opacity-95 transition-all shadow-lg shadow-primary/25"
+                      >
+                        <span className="material-symbols-outlined text-[18px]" aria-hidden="true">auto_awesome</span>
+                        <span>Build Custom Itinerary</span>
+                      </Link>
+                      <button onClick={handleReset} className="px-7 py-3.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-full hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        Clear All Filters
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

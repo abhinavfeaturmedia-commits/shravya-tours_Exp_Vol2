@@ -714,7 +714,7 @@ export const PartnerManager: React.FC = () => {
 
       {/* Edit Modal */}
       {editModal && selectedPartner && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setEditModal(false)}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[300] flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setEditModal(false)}>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-violet-600/10 to-purple-600/10 dark:from-violet-500/20 dark:to-purple-500/10 border-b border-slate-100 dark:border-white/10 p-6 flex items-center gap-4">
@@ -859,7 +859,7 @@ export const PartnerManager: React.FC = () => {
       )}
       {/* Add Modal */}
       {addModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto" onClick={e => e.target === e.currentTarget && setAddModal(false)}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[300] flex items-center justify-center p-4 overflow-y-auto" onClick={e => e.target === e.currentTarget && setAddModal(false)}>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden my-8">
             <div className="bg-gradient-to-r from-violet-600/10 to-purple-600/10 dark:from-violet-500/20 dark:to-purple-500/10 border-b border-slate-100 dark:border-white/10 p-6 flex items-center gap-4">
               <div className="size-12 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white font-black text-lg shadow-lg shadow-violet-500/30">
@@ -1038,7 +1038,7 @@ export const PartnerManager: React.FC = () => {
 
       {/* Edit Commission Modal */}
       {editCommModal && selectedCommission && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setEditCommModal(false)}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[300] flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && setEditCommModal(false)}>
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95">
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-violet-600/10 to-purple-600/10 dark:from-violet-500/20 dark:to-purple-500/10 border-b border-slate-100 dark:border-white/10 p-6 flex items-center gap-4">
@@ -1135,7 +1135,7 @@ export const PartnerManager: React.FC = () => {
       )}
       {/* Details Side-Sheet Drawer */}
       {detailPartnerId && (
-        <div className="fixed inset-0 z-50 overflow-hidden" aria-labelledby="slide-over-title" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[300] overflow-hidden" aria-labelledby="slide-over-title" role="dialog" aria-modal="true">
           <div className="absolute inset-0 overflow-hidden">
             {/* Backdrop overlay with blur */}
             <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity duration-300 ease-in-out" 

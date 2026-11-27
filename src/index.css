@@ -22,6 +22,13 @@
 :root {
     color-scheme: light dark;
     --brand-color: #C9732A;
+    --in-oklab: ;
+}
+
+@supports (background: linear-gradient(in oklab, white, black)) {
+    :root {
+        --in-oklab: in oklab;
+    }
 }
 
 html.light {
@@ -62,7 +69,9 @@ body {
 }
 
 /* Native top-layer <dialog> transitions with @starting-style and exit fallback */
-dialog.confirm-dialog {
+dialog.confirm-dialog,
+dialog.search-dialog,
+dialog.selector-dialog {
     opacity: 0;
     transition-property: opacity, transform, display, overlay;
     transition-duration: 0.22s;
@@ -70,13 +79,23 @@ dialog.confirm-dialog {
     transition-behavior: allow-discrete;
 }
 
+dialog:modal {
+    overscroll-behavior: contain;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-    dialog.confirm-dialog {
-        transform: scale(0.95);
+    dialog.confirm-dialog,
+    dialog.search-dialog,
+    dialog.selector-dialog {
+        transform: scale(0.96);
     }
 }
 
-dialog.confirm-dialog::backdrop {
+dialog.confirm-dialog::backdrop,
+dialog.search-dialog::backdrop,
+dialog.selector-dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
     background-color: rgba(15, 23, 42, 0);
     backdrop-filter: blur(0px);
     transition-property: background-color, backdrop-filter, display, overlay;
@@ -85,44 +104,69 @@ dialog.confirm-dialog::backdrop {
     transition-behavior: allow-discrete;
 }
 
-dialog.confirm-dialog[open]:where(:not([data-closing])) {
+dialog.confirm-dialog[open]:where(:not([data-closing])),
+dialog.search-dialog[open],
+dialog.selector-dialog[open] {
     opacity: 1;
 }
 
 @starting-style {
-    dialog.confirm-dialog[open]:where(:not([data-closing])) {
+    dialog.confirm-dialog[open]:where(:not([data-closing])),
+    dialog.search-dialog[open],
+    dialog.selector-dialog[open] {
         opacity: 0;
     }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-    dialog.confirm-dialog[open]:where(:not([data-closing])) {
+    dialog.confirm-dialog[open]:where(:not([data-closing])),
+    dialog.search-dialog[open],
+    dialog.selector-dialog[open] {
         transform: scale(1);
     }
 
     @starting-style {
-        dialog.confirm-dialog[open]:where(:not([data-closing])) {
-            transform: scale(0.95);
+        dialog.confirm-dialog[open]:where(:not([data-closing])),
+        dialog.search-dialog[open],
+        dialog.selector-dialog[open] {
+            transform: scale(0.96);
         }
     }
 }
 
-dialog.confirm-dialog[open]:where(:not([data-closing]))::backdrop {
-    background-color: rgba(15, 23, 42, 0.55);
-    backdrop-filter: blur(4px);
+dialog.confirm-dialog[open]:where(:not([data-closing]))::backdrop,
+dialog.search-dialog[open]::backdrop,
+dialog.selector-dialog[open]::backdrop {
+    background-color: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(6px);
 }
 
 @starting-style {
-    dialog.confirm-dialog[open]:where(:not([data-closing]))::backdrop {
+    dialog.confirm-dialog[open]:where(:not([data-closing]))::backdrop,
+    dialog.search-dialog[open]::backdrop,
+    dialog.selector-dialog[open]::backdrop {
         background-color: rgba(15, 23, 42, 0);
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
     dialog.confirm-dialog,
-    dialog.confirm-dialog::backdrop {
+    dialog.search-dialog,
+    dialog.selector-dialog,
+    dialog.confirm-dialog::backdrop,
+    dialog.search-dialog::backdrop,
+    dialog.selector-dialog::backdrop {
         transition-duration: 0.08s;
     }
+}
+
+/* Mega-menu hover bridge so diagonal pointer travel from nav trigger into panel stays open */
+.mega-menu-panel::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 100%;
+    block-size: 0.75rem;
 }
 
 /* Contrast-adaptive sleek scrollbar for modals & panels */
@@ -243,5 +287,168 @@ dialog.confirm-dialog[open]:where(:not([data-closing]))::backdrop {
         select::picker-icon {
             transition: none !important;
         }
+    }
+}
+
+/* ── Scoped Festive & Seasonal Snow, Santa & Reward Dialog Styles (?category=seasonal) ── */
+dialog.festive-reward-dialog {
+    opacity: 0;
+    padding: 0;
+    border: 0;
+    margin: auto;
+    max-width: min(28rem, calc(100vw - 2rem));
+    width: 100%;
+    border-radius: 1.5rem;
+    background: transparent;
+    transition-property: opacity, transform, display, overlay;
+    transition-duration: 0.24s;
+    transition-timing-function: ease-out;
+    transition-behavior: allow-discrete;
+}
+
+dialog.festive-reward-dialog:modal {
+    overscroll-behavior: contain;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    dialog.festive-reward-dialog {
+        transform: scale(0.95) translateY(8px);
+    }
+}
+
+dialog.festive-reward-dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
+    background-color: rgba(15, 23, 42, 0);
+    backdrop-filter: blur(0px);
+    transition-property: background-color, backdrop-filter, display, overlay;
+    transition-duration: 0.24s;
+    transition-timing-function: ease-out;
+    transition-behavior: allow-discrete;
+}
+
+dialog.festive-reward-dialog[open]:where(:not([data-closing])) {
+    opacity: 1;
+}
+
+@starting-style {
+    dialog.festive-reward-dialog[open]:where(:not([data-closing])) {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    dialog.festive-reward-dialog[open]:where(:not([data-closing])) {
+        transform: scale(1) translateY(0);
+    }
+
+    @starting-style {
+        dialog.festive-reward-dialog[open]:where(:not([data-closing])) {
+            transform: scale(0.95) translateY(8px);
+        }
+    }
+}
+
+dialog.festive-reward-dialog[open]:where(:not([data-closing]))::backdrop {
+    background-color: rgba(15, 23, 42, 0.62);
+    backdrop-filter: blur(6px);
+}
+
+@starting-style {
+    dialog.festive-reward-dialog[open]:where(:not([data-closing]))::backdrop {
+        background-color: rgba(15, 23, 42, 0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    dialog.festive-reward-dialog,
+    dialog.festive-reward-dialog::backdrop {
+        transition-duration: 0.08s;
+    }
+}
+
+/* Card snow-cap hover puff & Santa animations (opted in under no-preference) */
+.snow-puff-dot {
+    opacity: 0;
+    transform: translateY(0) scale(0.6);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .group:hover .snow-puff-dot {
+        animation: snowCapPuff 0.9s ease-out forwards;
+    }
+
+    .santa-walk-bob {
+        animation: santaBob 0.55s ease-in-out infinite alternate;
+    }
+
+    .santa-leg-front {
+        transform-origin: 48px 72px;
+        animation: santaStrideA 0.55s ease-in-out infinite alternate;
+    }
+
+    .santa-leg-back {
+        transform-origin: 36px 72px;
+        animation: santaStrideB 0.55s ease-in-out infinite alternate;
+    }
+
+    .santa-arm-wave {
+        transform-origin: 54px 48px;
+        animation: santaWave 0.6s ease-in-out infinite alternate;
+    }
+
+    .festive-gift-bounce {
+        animation: giftDropBounce 1.8s ease-in-out infinite;
+    }
+
+    .festive-parachute-sway {
+        animation: parachuteSway 2.4s ease-in-out infinite alternate;
+    }
+}
+
+@keyframes snowCapPuff {
+    0% {
+        opacity: 0.95;
+        transform: translateY(0) scale(0.9);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(22px) scale(0.4);
+    }
+}
+
+@keyframes santaBob {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(-4px); }
+}
+
+@keyframes santaStrideA {
+    0% { transform: rotate(-16deg); }
+    100% { transform: rotate(18deg); }
+}
+
+@keyframes santaStrideB {
+    0% { transform: rotate(18deg); }
+    100% { transform: rotate(-16deg); }
+}
+
+@keyframes santaWave {
+    0% { transform: rotate(-10deg); }
+    100% { transform: rotate(26deg); }
+}
+
+@keyframes giftDropBounce {
+    0%, 100% { transform: translateY(0) rotate(-2deg); }
+    50% { transform: translateY(-8px) rotate(2deg); }
+}
+
+@keyframes parachuteSway {
+    0% { transform: rotate(-7deg) translateX(-5px); }
+    100% { transform: rotate(7deg) translateX(5px); }
+}
+
+@media (forced-colors: active) {
+    dialog.festive-reward-dialog {
+        border: 2px solid CanvasText;
     }
 }

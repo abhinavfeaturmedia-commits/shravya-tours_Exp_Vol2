@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useData } from '../../context/DataContext';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +19,7 @@ import BrandSelect from '../../components/ui/BrandSelect';
 import BrandDatePicker from '../../components/ui/BrandDatePicker';
 import {
     getBookingReadiness, getBalanceFlag, getAttentionFlags,
+    parseDay, toDayString, todayDateStr, addDaysToDateStr, resolveTourDuration, getTourProgress,
     READINESS_STYLES, BALANCE_FLAG_STYLES, type ReadinessLevel
 } from '../../utils/tourReadiness';
 
@@ -32,35 +34,7 @@ const getAvatarBg = (color: string) => AVATAR_PALETTE[color] ?? '#64748b';
 
 // ─── Timezone-safe helpers ───────────────────────────────────────────────────
 /** Parse a date string into a local midnight Date without UTC shifting */
-const parseLocalDate = (dateStr: string): Date | null => {
-    if (!dateStr) return null;
-    const cleanStr = String(dateStr).split('T')[0].trim();
-    const parts = cleanStr.split(/[-/]/);
-    if (parts.length >= 3) {
-        let year = parseInt(parts[0], 10);
-        let month = parseInt(parts[1], 10) - 1;
-        let day = parseInt(parts[2], 10);
-
-        // Handle DD-MM-YYYY or DD/MM/YYYY
-        if (parts[0].length <= 2 && parts[2].length === 4) {
-            day = parseInt(parts[0], 10);
-            month = parseInt(parts[1], 10) - 1;
-            year = parseInt(parts[2], 10);
-        }
-
-        if (!isNaN(year) && !isNaN(month) && !isNaN(day) && year > 1900 && month >= 0 && month <= 11 && day >= 1 && day <= 31) {
-            const d = new Date(year, month, day);
-            d.setHours(0, 0, 0, 0);
-            return d;
-        }
-    }
-    const fallback = new Date(dateStr);
-    if (!isNaN(fallback.getTime())) {
-        fallback.setHours(0, 0, 0, 0);
-        return fallback;
-    }
-    return null;
-};
+const parseLocalDate = (dateStr: string): Date | null => parseDay(dateStr);
 
 /** Format a YYYY-MM-DD string for display without UTC shifting */
 const formatLocalDate = (dateStr: string): string => {
@@ -82,30 +56,6 @@ const formatExternalUrl = (url: string): string => {
     if (!url) return '';
     if (/^(https?:\/\/|wa\.me)/i.test(url)) return url;
     return `https://${url}`;
-};
-
-/** Tour progress calculation (Day count & percentage) */
-const getTourProgress = (dateStr: string, duration: number): { day: number; percent: number } => {
-    const start = parseLocalDate(dateStr);
-    if (!start || duration <= 0) return { day: 1, percent: 100 };
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const end = new Date(start);
-    end.setDate(start.getDate() + (duration - 1));
-    end.setHours(23, 59, 59, 999);
-
-    if (today < start) {
-        return { day: 1, percent: 0 };
-    }
-    if (today > end) {
-        return { day: duration, percent: 100 };
-    }
-
-    const diffDays = Math.round((today.getTime() - start.getTime()) / 86_400_000) + 1;
-    const currentDay = Math.min(Math.max(diffDays, 1), duration);
-    const percent = Math.min(Math.max(Math.round((currentDay / duration) * 100), 5), 100);
-    return { day: currentDay, percent };
 };
 
 // ─── Pax count extraction ─────────────────────────────────────────────────────
@@ -357,33 +307,7 @@ export const Operations: React.FC = () => {
             const start = parseLocalDate(b.date);
             if (!start) return;
 
-            let duration: number;
-            let durationEstimated = false;
-
-            if (b.endDate) {
-                const startD = parseLocalDate(b.date);
-                const endD = parseLocalDate(b.endDate);
-                if (startD && endD && endD >= startD) {
-                    const calcSpan = Math.round((endD.getTime() - startD.getTime()) / 86_400_000) + 1;
-                    duration = Math.max(calcSpan, b.durationDays || 1);
-                } else if (b.durationDays && b.durationDays > 0) {
-                    duration = b.durationDays;
-                } else {
-                    duration = 1;
-                    durationEstimated = true;
-                }
-            } else if (b.durationDays && b.durationDays > 0) {
-                duration = b.durationDays;
-            } else {
-                const pkg = packages.find((p: any) => p.id === b.packageId)
-                    || packages.find((p: any) => b.packageId && p.title === b.title);
-                if (pkg?.days && pkg.days > 0) {
-                    duration = pkg.days;
-                } else {
-                    duration = 1;
-                    durationEstimated = true;
-                }
-            }
+            const { duration, estimated: durationEstimated } = resolveTourDuration(b, packages);
 
             const end = new Date(start);
             end.setDate(start.getDate() + (duration - 1));
@@ -586,7 +510,7 @@ export const Operations: React.FC = () => {
 
     // ─── Phase 1: Operational Extensions (Guest Program & Checklists) ────────
     const [operationsTab, setOperationsTab] = useState<'live' | 'guest-program' | 'pre-tour-checklists'>('live');
-    const [programDate, setProgramDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+    const [programDate, setProgramDate] = useState<string>(() => todayDateStr());
     const [selectedBookingForChecklistId, setSelectedBookingForChecklistId] = useState<string | null>(null);
     const selectedBookingForChecklist = useMemo(() => {
         if (!selectedBookingForChecklistId || !bookings) return null;
@@ -622,19 +546,14 @@ export const Operations: React.FC = () => {
             if (!start) return;
 
             const pkg = packages.find((p: any) => p.id === b.packageId || p.title === b.title);
-            let duration = b.durationDays || (b.endDate ? Math.max(1, Math.round((parseLocalDate(b.endDate)!.getTime() - start.getTime()) / 86400000) + 1) : 0);
-            if (!duration || duration <= 0) {
-                duration = pkg?.days || 3;
-            }
+            const { duration } = resolveTourDuration(b, packages);
 
             const end = new Date(start);
             end.setDate(start.getDate() + (duration - 1));
             end.setHours(23, 59, 59, 999);
 
             if (targetDate >= start && targetDate <= end) {
-                const diffDays = Math.round((targetDate.getTime() - start.getTime()) / 86400000) + 1;
-                const currentDay = Math.min(Math.max(diffDays, 1), duration);
-                const percent = Math.min(Math.max(Math.round((currentDay / duration) * 100), 5), 100);
+                const { day: currentDay, percent } = getTourProgress(b.date, duration, programDate);
 
                 const dayItin = pkg?.itinerary?.find((item: any) => item.day === currentDay);
                 const todayItineraryTitle = dayItin?.title || `Tour Day ${currentDay} Itinerary & Sightseeing`;
@@ -761,6 +680,15 @@ export const Operations: React.FC = () => {
     const [whatsappGroupUrl, setWhatsappGroupUrl] = useState('');
     const [modalDurationDays, setModalDurationDays] = useState('');
 
+    useEffect(() => {
+        if (!prepModalOpen) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setPrepModalOpen(false);
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [prepModalOpen]);
+
     const openPrepModal = (booking: Booking) => {
         setSelectedBookingForPrep(booking);
         const transport = booking.supplierBookings?.find(sb => sb.serviceType === 'Transport' || sb.serviceType?.includes('Transport'));
@@ -788,6 +716,8 @@ export const Operations: React.FC = () => {
         const newDuration = parseInt(modalDurationDays) || 0;
         if (newDuration > 0 && newDuration !== (selectedBookingForPrep.durationDays ?? 0)) {
             updates.durationDays = newDuration;
+            const syncedEndDate = addDaysToDateStr(selectedBookingForPrep.date, newDuration - 1);
+            if (syncedEndDate) updates.endDate = syncedEndDate;
         }
         if (whatsappGroupUrl !== (selectedBookingForPrep.whatsappGroupUrl || '')) {
             updates.whatsappGroupUrl = whatsappGroupUrl;
@@ -1208,7 +1138,7 @@ export const Operations: React.FC = () => {
                                         : null;
 
                                     const { day: dayOfTour, percent: progressPercent } = getTourProgress(tour.date, tour.duration);
-                                    const endDateLabel = formatLocalDate(tour.endDate || (tour as any).liveEndDate.toISOString());
+                                    const endDateLabel = formatLocalDate(tour.endDate || addDaysToDateStr(tour.date, tour.duration - 1) || toDayString((tour as any).liveEndDate));
 
                                     const formattedPhone = tour.phone?.replace(/\D/g, '');
                                     const waPhone = formattedPhone ? (formattedPhone.length === 10 ? `91${formattedPhone}` : formattedPhone) : '';
@@ -1528,11 +1458,12 @@ export const Operations: React.FC = () => {
                                                     )}
                                                 </div>
 
-                                                <div className="flex gap-2">
+                                                <div className="grid grid-cols-2 gap-2">
                                                     <BrandSelect
                                                         value={tour.liveStatus || 'Auto'}
                                                         onChange={(e) => handleLiveStatusChange(tour.id, e.target.value)}
-                                                        className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl border-none outline-none cursor-pointer"
+                                                        containerClassName="w-full"
+                                                        className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl border-none outline-none cursor-pointer"
                                                     >
                                                         <option value="Auto">⚡ Auto (Date)</option>
                                                         <option value="Live">🟢 Force Live</option>
@@ -1540,23 +1471,26 @@ export const Operations: React.FC = () => {
                                                     </BrandSelect>
 
                                                     <button
+                                                        type="button"
                                                         onClick={() => setSelectedBookingForChecklistId(tour.id)}
-                                                        className="py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1"
+                                                        className="w-full py-1.5 px-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1 whitespace-nowrap"
                                                         title="10-Point Pre-Tour Checklist"
                                                     >
                                                         <CheckSquare size={12} /> Checklist
                                                     </button>
 
                                                     <button
+                                                        type="button"
                                                         onClick={() => openPrepModal(tour)}
-                                                        className="flex-1 py-1.5 px-3 bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold rounded-xl transition-colors shadow-xs flex items-center justify-center gap-1"
+                                                        className="w-full py-1.5 px-2.5 bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold rounded-xl transition-colors shadow-xs flex items-center justify-center gap-1 whitespace-nowrap"
                                                     >
                                                         <Car size={12} /> Assign Supplier
                                                     </button>
 
                                                     <button
+                                                        type="button"
                                                         onClick={() => navigate(`/admin/bookings?search=${tour.id}`)}
-                                                        className="py-1.5 px-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl hover:bg-slate-200 transition-colors"
+                                                        className="w-full py-1.5 px-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center whitespace-nowrap"
                                                     >
                                                         Details
                                                     </button>
@@ -1600,7 +1534,7 @@ export const Operations: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-hidden">
+                            <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-x-auto">
                                 <table className="w-full text-left border-collapse">
                                     <thead className="bg-slate-50 dark:bg-slate-900/50 text-[11px] uppercase font-black text-slate-400 border-b border-slate-100 dark:border-slate-800">
                                         <tr>
@@ -1687,7 +1621,7 @@ export const Operations: React.FC = () => {
                                         </button>
                                     )}
                                 </div>
-                                <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-hidden">
+                                <div className="bg-white dark:bg-[#1A2633] rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-x-auto">
                                     <table className="w-full text-left border-collapse">
                                         <thead className="bg-slate-50 dark:bg-slate-900/50 text-[11px] uppercase font-black text-slate-400 border-b border-slate-100 dark:border-slate-800">
                                             <tr>
@@ -1751,27 +1685,22 @@ export const Operations: React.FC = () => {
 
                                 <div className="flex items-center gap-1.5 pt-3 sm:pt-4">
                                     <button
-                                        onClick={() => {
-                                            const d = new Date(programDate);
-                                            d.setDate(d.getDate() - 1);
-                                            setProgramDate(d.toISOString().split('T')[0]);
-                                        }}
+                                        type="button"
+                                        onClick={() => setProgramDate(addDaysToDateStr(programDate, -1) || todayDateStr())}
                                         className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
                                     >
                                         ◀ Yesterday
                                     </button>
                                     <button
-                                        onClick={() => setProgramDate(new Date().toISOString().split('T')[0])}
+                                        type="button"
+                                        onClick={() => setProgramDate(todayDateStr())}
                                         className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors"
                                     >
                                         Today
                                     </button>
                                     <button
-                                        onClick={() => {
-                                            const d = new Date(programDate);
-                                            d.setDate(d.getDate() + 1);
-                                            setProgramDate(d.toISOString().split('T')[0]);
-                                        }}
+                                        type="button"
+                                        onClick={() => setProgramDate(addDaysToDateStr(programDate, 1) || todayDateStr())}
                                         className="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
                                     >
                                         Tomorrow ▶
@@ -1821,7 +1750,7 @@ export const Operations: React.FC = () => {
                                     No active booking spans across this date. Check tomorrow or jump back to the Live Tours Monitor.
                                 </p>
                                 <button
-                                    onClick={() => setProgramDate(new Date().toISOString().split('T')[0])}
+                                    onClick={() => setProgramDate(todayDateStr())}
                                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors"
                                 >
                                     Return to Today
@@ -2115,18 +2044,26 @@ export const Operations: React.FC = () => {
             </div>
 
             {/* ══ PREP / SUPPLIER ASSIGNMENT MODAL ══ */}
-            {prepModalOpen && selectedBookingForPrep && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-                    <div className="bg-white dark:bg-[#1A2633] rounded-3xl w-full max-w-lg shadow-2xl p-6 relative overflow-y-auto max-h-[90vh] border border-slate-200 dark:border-slate-800">
+            {prepModalOpen && selectedBookingForPrep && typeof document !== 'undefined' && createPortal(
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="prep-modal-title"
+                    onClick={(e) => { if (e.target === e.currentTarget) setPrepModalOpen(false); }}
+                    className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in overflow-y-auto overscroll-contain"
+                >
+                    <div className="bg-white dark:bg-[#1A2633] rounded-3xl w-full max-w-lg shadow-2xl p-6 relative overflow-y-auto overscroll-contain max-h-[90vh] border border-slate-200 dark:border-slate-800 my-auto">
                         <button
+                            type="button"
+                            aria-label="Close modal"
                             onClick={() => setPrepModalOpen(false)}
                             className="absolute top-4 right-4 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 hover:text-slate-600"
                         >
                             <XCircle size={20} />
                         </button>
 
-                        <h3 className="text-xl font-black text-slate-900 dark:text-white mb-1 flex items-center gap-2">
-                            <Car className="text-blue-600" size={22} /> Supplier &amp; Staff Assignment
+                        <h3 id="prep-modal-title" className="text-xl font-black text-slate-900 dark:text-white mb-1 flex items-center gap-2 pr-8">
+                            <Car className="text-blue-600 shrink-0" size={22} /> Supplier &amp; Staff Assignment
                         </h3>
                         <p className="text-xs text-slate-500 mb-5 font-medium">
                             Assign transport drivers and tour guides for <strong>{selectedBookingForPrep.customer}</strong>.
@@ -2256,7 +2193,8 @@ export const Operations: React.FC = () => {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* ══ 10-POINT PRE-TOUR CHECKLIST MODAL ══ */}

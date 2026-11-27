@@ -296,7 +296,7 @@ export const AdminKYCManager: React.FC = () => {
 
       {/* Lightbox */}
       {lightbox && (
-        <div className="fixed inset-0 z-[250] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+        <div className="fixed inset-0 z-[350] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
           <div className="relative max-w-4xl max-h-[90vh] bg-slate-900 p-2 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <img src={lightbox} alt="Document preview" className="max-w-full max-h-[85vh] object-contain rounded-xl" />
             <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 size-10 bg-black/60 hover:bg-black text-white rounded-full flex items-center justify-center transition-colors">
@@ -545,7 +545,7 @@ export const AdminKYCManager: React.FC = () => {
 
       {/* Document Review Drawer */}
       {selected && (
-        <div className="fixed inset-0 z-50 flex justify-end">
+        <div className="fixed inset-0 z-[300] flex justify-end">
           {/* Backdrop */}
           <div 
             className="absolute inset-0 bg-black/55 backdrop-blur-sm animate-in fade-in"

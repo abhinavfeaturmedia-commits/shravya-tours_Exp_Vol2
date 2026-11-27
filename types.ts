@@ -116,6 +116,7 @@ export interface Booking {
   checklist?: TourChecklistItem[]; // 10-Point Pre-Tour Checklist items
   tripFormToken?: string;
   tripFormStatus?: 'Not Sent' | 'Sent' | 'Submitted' | 'Reviewed';
+  createdAt?: string;
 }
 
 export interface BookingNote {

@@ -129,7 +129,7 @@ export const LedgerManagementModal: React.FC<LedgerManagementModalProps> = ({ is
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-[280] flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
             <div className="bg-white dark:bg-[#1A2633] w-full max-w-4xl rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 h-[95vh] sm:h-[80vh]">
                 <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-start gap-3 bg-slate-50 dark:bg-slate-800/50">
                     <div className="min-w-0 flex-1">

@@ -112,7 +112,7 @@ const DrillDownModal: React.FC<{ member: any; onClose: () => void }> = ({ member
     ].filter(d => d.value > 0);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
             <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="sticky top-0 bg-white dark:bg-[#1A2633] flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800 rounded-t-3xl z-10">

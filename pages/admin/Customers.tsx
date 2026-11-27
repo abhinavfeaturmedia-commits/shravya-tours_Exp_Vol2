@@ -1636,8 +1636,8 @@ const CustomerDetailsDrawer: React.FC<{
 
     return (
         <>
-            {isOpen && <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[150] transition-opacity" onClick={onClose} />}
-            <div className={`fixed inset-y-0 right-0 w-full max-w-2xl bg-white dark:bg-[#0B1116] shadow-2xl z-[160] transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
+            {isOpen && <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[250] transition-opacity" onClick={onClose} />}
+            <div className={`fixed inset-y-0 right-0 w-full max-w-2xl bg-white dark:bg-[#0B1116] shadow-2xl z-[260] transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}>
                 
                 {/* ─── Drawer Header ─────────────────────────────────────── */}
                 <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-[#0B1116] z-10">

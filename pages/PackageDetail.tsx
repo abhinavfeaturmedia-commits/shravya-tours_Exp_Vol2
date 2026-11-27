@@ -13,6 +13,7 @@ import { ImageUpload } from '../components/ui/ImageUpload';
 import { formatPrice, formatPriceCompact, getLocationName, formatTripDuration, getPackageBasePax, getPackageRoute, formatNightsDaysCode, getPackageReviewCount, getPackagePricingInfo } from '../utils/packageUtils';
 import { getEmbedUrl, getVideoThumbnail } from '../utils/videoUtils';
 import { copyToClipboard } from '../utils/clipboard';
+import { addDaysToDateStr } from '../utils/tourReadiness';
 import { useCustomerAuth, CUSTOMER_JWT_KEY } from '../context/CustomerAuthContext';
 import { BorderBeam } from 'border-beam';
 import { BrandSelect } from '../components/ui/BrandSelect';
@@ -877,11 +878,8 @@ export const PackageDetail: React.FC = () => {
         startDate: bookingData.date || undefined,
         endDate: (() => {
           if (!bookingData.date) return undefined;
-          const start = new Date(bookingData.date);
-          if (isNaN(start.getTime())) return undefined;
-          const days = typeof tour.days === 'number' && tour.days > 1 ? tour.days - 1 : 0;
-          start.setDate(start.getDate() + days);
-          return start.toISOString().split('T')[0];
+          const daysOffset = typeof tour.days === 'number' && tour.days > 1 ? tour.days - 1 : 0;
+          return addDaysToDateStr(bookingData.date, daysOffset) || undefined;
         })(),
         type: 'Tour',
         status: 'New',

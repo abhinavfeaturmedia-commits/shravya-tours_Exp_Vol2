@@ -515,7 +515,13 @@ export const Home: React.FC = () => {
   const handleCarSubmit = (data: CarBookingData) => {
     setBookingType('Car');
     const seatingInfo = data.seating ? ` (${data.seating})` : '';
-    setBookingDetails(`${data.vehicleCategory} - ${data.vehicleType}${seatingInfo}: ${data.pickupLocation} ${data.sameDropOff ? '(Round Trip)' : `to ${data.dropoffLocation}`} on ${data.pickupDate} at ${data.pickupTime}`);
+    const routeText =
+      data.tripType === 'Local Hourly'
+        ? `${data.pickupLocation} — Local Hourly (${data.dropoffLocation || '8 Hrs / 80 Km'})`
+        : data.tripType === 'Round Trip'
+        ? `${data.pickupLocation}${data.dropoffLocation && data.dropoffLocation.toLowerCase() !== data.pickupLocation.toLowerCase() ? ` to ${data.dropoffLocation}` : ''} (Round Trip)`
+        : `${data.pickupLocation} to ${data.dropoffLocation}`;
+    setBookingDetails(`${data.vehicleCategory} - ${data.vehicleType}${seatingInfo}: ${routeText} on ${data.pickupDate} at ${data.pickupTime}`);
     setBookingOrigin(data.pickupLocation);
     setBookingDestination(data.dropoffLocation || data.pickupLocation);
     setBookingDate(data.pickupDate);

@@ -695,7 +695,7 @@ export const BookingDetail: React.FC = () => {
 
       {/* Mobile Drawer Sidebar */}
       {isMobileSidebarOpen && (
-        <div role="dialog" aria-modal="true" aria-label="Navigation Menu" className="fixed inset-0 z-50 lg:hidden flex no-print">
+        <div role="dialog" aria-modal="true" aria-label="Navigation Menu" className="fixed inset-0 z-[300] lg:hidden flex no-print">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsMobileSidebarOpen(false)} />
           <div className="relative w-72 bg-white flex flex-col h-full shadow-2xl p-5 z-10">
             <button type="button" aria-label="Close navigation menu" className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg" onClick={() => setIsMobileSidebarOpen(false)}>
@@ -1364,7 +1364,7 @@ export const BookingDetail: React.FC = () => {
 
       {/* ── MODAL: BANK TRANSFER / UTR PAYMENT RECEIPT ── */}
       {showPayModal && (
-        <div role="dialog" aria-modal="true" aria-label="Submit Payment Proof" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+        <div role="dialog" aria-modal="true" aria-label="Submit Payment Proof" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative">
             <button type="button" aria-label="Close payment modal" onClick={() => setShowPayModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg">
               <span className="material-symbols-outlined">close</span>
@@ -1454,7 +1454,7 @@ export const BookingDetail: React.FC = () => {
 
       {/* ── MODAL: CANCELLATION REQUEST ── */}
       {showCancelModal && (
-        <div role="dialog" aria-modal="true" aria-label="Request Cancellation" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+        <div role="dialog" aria-modal="true" aria-label="Request Cancellation" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative">
             <button type="button" aria-label="Close cancellation modal" onClick={() => setShowCancelModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg">
               <span className="material-symbols-outlined">close</span>
@@ -1484,7 +1484,7 @@ export const BookingDetail: React.FC = () => {
 
       {/* ── MODAL: RESCHEDULE REQUEST ── */}
       {showRescheduleModal && (
-        <div role="dialog" aria-modal="true" aria-label="Request Date Change" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+        <div role="dialog" aria-modal="true" aria-label="Request Date Change" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl relative">
             <button type="button" aria-label="Close reschedule modal" onClick={() => setShowRescheduleModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg">
               <span className="material-symbols-outlined">close</span>
@@ -1525,7 +1525,7 @@ export const BookingDetail: React.FC = () => {
       )}
       {/* ── MODAL: LIVE DRIVER TRACKING ── */}
       {showDriverTrackingModal && driverAllocation && (
-        <div role="dialog" aria-modal="true" aria-label="Live Driver Location Tracking" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
+        <div role="dialog" aria-modal="true" aria-label="Live Driver Location Tracking" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/55 backdrop-blur-sm no-print">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-2xl shadow-2xl relative">
             <button type="button" aria-label="Close live tracking modal" onClick={() => setShowDriverTrackingModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg">
               <span className="material-symbols-outlined">close</span>

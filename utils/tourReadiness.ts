@@ -15,20 +15,164 @@ import { Booking, TourChecklistCategory, TourChecklistItem } from '../types';
 
 const DAY_MS = 86_400_000;
 
-// ─── Date helpers (timezone-safe: YYYY-MM-DD is always treated as LOCAL) ───
+// ─── Date helpers (timezone-safe: YYYY-MM-DD is always treated as calendar date) ─
+
+const getTemporalApi = (): any => (globalThis as any).Temporal;
+
+/** Normalize a date string to canonical YYYY-MM-DD without timezone drift. */
+export const toPlainDateYMD = (value?: string | null): string | null => {
+    if (!value) return null;
+    const clean = String(value).split('T')[0].trim();
+    const match = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (match) {
+        const y = parseInt(match[1], 10);
+        const m = parseInt(match[2], 10);
+        const d = parseInt(match[3], 10);
+        if (y > 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+            const iso = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const TemporalApi = getTemporalApi();
+            if (TemporalApi?.PlainDate) {
+                try {
+                    return TemporalApi.PlainDate.from(iso).toString();
+                } catch {
+                    return null;
+                }
+            }
+            const probe = new Date(Date.UTC(y, m - 1, d));
+            if (probe.getUTCFullYear() === y && probe.getUTCMonth() === m - 1 && probe.getUTCDate() === d) {
+                return iso;
+            }
+            return null;
+        }
+    }
+    const dmy = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (dmy) {
+        const d = parseInt(dmy[1], 10);
+        const m = parseInt(dmy[2], 10);
+        const y = parseInt(dmy[3], 10);
+        return toPlainDateYMD(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+    const fallback = new Date(value);
+    if (isNaN(fallback.getTime())) return null;
+    return `${fallback.getFullYear()}-${String(fallback.getMonth() + 1).padStart(2, '0')}-${String(fallback.getDate()).padStart(2, '0')}`;
+};
+
+/** Today's calendar date as YYYY-MM-DD in the user's local calendar. */
+export const todayDateStr = (): string => {
+    const TemporalApi = getTemporalApi();
+    if (TemporalApi?.Now?.plainDateISO) {
+        try {
+            return TemporalApi.Now.plainDateISO().toString();
+        } catch {
+            // Fall through to local Date
+        }
+    }
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+};
+
+/** Add/subtract calendar days to a YYYY-MM-DD string without UTC/DST drift. */
+export const addDaysToDateStr = (value?: string | null, deltaDays: number = 0): string | null => {
+    const ymd = toPlainDateYMD(value);
+    if (!ymd) return null;
+    const TemporalApi = getTemporalApi();
+    if (TemporalApi?.PlainDate) {
+        try {
+            return TemporalApi.PlainDate.from(ymd).add({ days: deltaDays }).toString();
+        } catch {
+            // Fall through
+        }
+    }
+    const [y, m, d] = ymd.split('-').map(Number);
+    const utc = new Date(Date.UTC(y, m - 1, d + deltaDays));
+    return `${utc.getUTCFullYear()}-${String(utc.getUTCMonth() + 1).padStart(2, '0')}-${String(utc.getUTCDate()).padStart(2, '0')}`;
+};
+
+/** Inclusive calendar days between start and end (e.g. Nov 23..Nov 29 => 7). Returns null if invalid or end < start. */
+export const inclusiveDaysBetween = (startStr?: string | null, endStr?: string | null): number | null => {
+    const s = toPlainDateYMD(startStr);
+    const e = toPlainDateYMD(endStr);
+    if (!s || !e) return null;
+    const TemporalApi = getTemporalApi();
+    if (TemporalApi?.PlainDate) {
+        try {
+            const pStart = TemporalApi.PlainDate.from(s);
+            const pEnd = TemporalApi.PlainDate.from(e);
+            if (TemporalApi.PlainDate.compare(pEnd, pStart) < 0) return null;
+            return pEnd.since(pStart, { largestUnit: 'day' }).days + 1;
+        } catch {
+            // Fall through
+        }
+    }
+    const [sy, sm, sd] = s.split('-').map(Number);
+    const [ey, em, ed] = e.split('-').map(Number);
+    const diff = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / DAY_MS);
+    return diff >= 0 ? diff + 1 : null;
+};
+
+/** Resolve authoritative tour duration in inclusive days:
+ *  1. Explicit start + end date span (source of truth so Day X of Y always matches Start/End dates)
+ *  2. Explicit booking.durationDays (> 0)
+ *  3. Linked package days / itinerary length
+ *  4. Fallback 1 day (estimated)
+ */
+export const resolveTourDuration = (
+    booking: { date?: string; endDate?: string; durationDays?: number | null; packageId?: string; title?: string },
+    packages?: Array<{ id?: string; title?: string; days?: number; itinerary?: any[] }>
+): { duration: number; estimated: boolean } => {
+    const span = inclusiveDaysBetween(booking.date, booking.endDate);
+    if (span !== null && span >= 1) {
+        return { duration: span, estimated: false };
+    }
+
+    if (booking.durationDays && booking.durationDays > 0) {
+        return { duration: Math.round(booking.durationDays), estimated: false };
+    }
+
+    if (packages && packages.length > 0) {
+        const pkg = packages.find(p => booking.packageId && p.id === booking.packageId)
+            || packages.find(p => booking.title && p.title === booking.title);
+        const pkgDays = pkg?.days && pkg.days > 0
+            ? pkg.days
+            : (Array.isArray(pkg?.itinerary) && pkg.itinerary.length > 0 ? pkg.itinerary.length : 0);
+        if (pkgDays > 0) {
+            return { duration: Math.round(pkgDays), estimated: false };
+        }
+    }
+
+    return { duration: 1, estimated: true };
+};
+
+/** Tour day & progress percentage using location-agnostic calendar dates. */
+export const getTourProgress = (
+    dateStr?: string | null,
+    duration: number = 1,
+    targetDateStr?: string | null
+): { day: number; percent: number } => {
+    const startYmd = toPlainDateYMD(dateStr);
+    if (!startYmd || duration <= 0) return { day: 1, percent: 100 };
+
+    const refYmd = toPlainDateYMD(targetDateStr) || todayDateStr();
+    const endYmd = addDaysToDateStr(startYmd, duration - 1);
+
+    if (refYmd < startYmd) {
+        return { day: 1, percent: 0 };
+    }
+    if (endYmd && refYmd > endYmd) {
+        return { day: duration, percent: 100 };
+    }
+
+    const diffDays = inclusiveDaysBetween(startYmd, refYmd) ?? 1;
+    const currentDay = Math.min(Math.max(diffDays, 1), duration);
+    const percent = Math.min(Math.max(Math.round((currentDay / duration) * 100), 5), 100);
+    return { day: currentDay, percent };
+};
 
 export const parseDay = (value?: string | null): Date | null => {
-    if (!value) return null;
-    const parts = String(value).split('T')[0].split('-');
-    if (parts.length !== 3) {
-        const d = new Date(value);
-        return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    }
-    const y = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10) - 1;
-    const d = parseInt(parts[2], 10);
-    if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
-    return new Date(y, m, d);
+    const ymd = toPlainDateYMD(value);
+    if (!ymd) return null;
+    const [y, m, d] = ymd.split('-').map(Number);
+    return new Date(y, m - 1, d);
 };
 
 export const startOfToday = (): Date => {
@@ -44,7 +188,7 @@ export const toDayString = (d: Date): string => {
 
 /** Whole days from `from` until `to` (negative when `to` is in the past). */
 export const daysBetween = (from: Date, to: Date): number =>
-    Math.round((to.getTime() - from.getTime()) / DAY_MS);
+    Math.round((Date.UTC(to.getFullYear(), to.getMonth(), to.getDate()) - Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) / DAY_MS);
 
 // ─── 1. Checklist due dates ────────────────────────────────────────────────
 

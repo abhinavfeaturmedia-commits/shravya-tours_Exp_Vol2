@@ -43,6 +43,8 @@ const BlogList = lazy(() => import('./pages/BlogList').then(module => ({ default
 const BlogPostDetail = lazy(() => import('./pages/BlogPostDetail').then(module => ({ default: module.BlogPostDetail })));
 const DigitalCard = lazy(() => import('./pages/DigitalCard').then(module => ({ default: module.DigitalCard })));
 const CityLandingPage = lazy(() => import('./pages/CityLandingPage').then(module => ({ default: module.CityLandingPage })));
+const CustomTripPlanner = lazy(() => import('./pages/CustomTripPlanner').then(module => ({ default: module.CustomTripPlanner })));
+const CorporateTravel = lazy(() => import('./pages/CorporateTravel').then(module => ({ default: module.CorporateTravel })));
 const VendorAvailabilityResponse = lazy(() => import('./pages/VendorAvailabilityResponse').then(module => ({ default: module.VendorAvailabilityResponse })));
 const HotelAvailabilityResponse = lazy(() => import('./pages/HotelAvailabilityResponse').then(module => ({ default: module.HotelAvailabilityResponse })));
 const TripDetailsForm = lazy(() => import('./pages/TripDetailsForm').then(module => ({ default: module.TripDetailsForm })));
@@ -154,6 +156,9 @@ const App: React.FC = () => {
                   <Route path="travel-agency/:citySlug" element={<CityLandingPage />} />
                   <Route path="tours-from/:citySlug" element={<CityLandingPage />} />
                   <Route path="maharashtra-tours" element={<CityLandingPage />} />
+                  <Route path="customize" element={<CustomTripPlanner />} />
+                  <Route path="custom-trip" element={<Navigate to="/customize" replace />} />
+                  <Route path="corporate" element={<CorporateTravel />} />
                 </Route>
 
                 <Route path="/login" element={<Login />} />

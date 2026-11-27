@@ -7,6 +7,7 @@ import { WhatsAppModal } from '../booking/WhatsAppModal';
 import { SuggestPopup, isDismissed, isSnoozed, dismissSuggestion, snoozeSuggestion } from '../ui/SuggestPopup';
 import { PaymentLogos } from '../ui/PaymentLogos';
 import { useCustomerAuth } from '../../context/CustomerAuthContext';
+import { useData } from '../../context/DataContext';
 import { PublicChatbot } from '../ui/PublicChatbot';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { toast } from 'sonner';
@@ -16,6 +17,7 @@ export const PublicLayout: React.FC = () => {
   const navigate = useNavigate();
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
   const { isAuthenticated } = useCustomerAuth();
+  const { packages, masterLocations, trendingDestinations } = useData();
 
   // Smart popup state
   const [showExitIntent, setShowExitIntent] = useState(false);
@@ -136,6 +138,10 @@ export const PublicLayout: React.FC = () => {
             logoAlt="SHRAWELLO Travel Hub"
             items={navItems}
             activeHref={location.pathname}
+            packages={packages}
+            masterLocations={masterLocations}
+            trendingDestinations={trendingDestinations}
+            isCustomerAuthenticated={isAuthenticated}
           />
         </div>
       </div>
@@ -239,8 +245,13 @@ export const PublicLayout: React.FC = () => {
               </div>
             </div>
             <div>
-              <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase text-xs tracking-[0.2em]">Company</h4>
+              <h4 className="font-bold text-slate-900 dark:text-white mb-6 uppercase text-xs tracking-[0.2em]">Company & Explore</h4>
               <ul className="space-y-3 text-sm text-slate-500 dark:text-slate-400 font-medium">
+                <li><Link to="/packages?category=domestic" className="hover:text-primary transition-colors">Domestic Tours</Link></li>
+                <li><Link to="/packages?category=international" className="hover:text-primary transition-colors">International Tours</Link></li>
+                <li><Link to="/packages?category=honeymoon" className="hover:text-primary transition-colors">Honeymoon Packages</Link></li>
+                <li><Link to="/customize" className="hover:text-primary transition-colors">Custom Trip Planner</Link></li>
+                <li><Link to="/corporate" className="hover:text-primary transition-colors">Corporate & MICE</Link></li>
                 <li><Link to="/about" className="hover:text-primary transition-colors">About Us</Link></li>
                 <li><Link to="/blog" className="hover:text-primary transition-colors">Travel Guides & Blogs</Link></li>
                 <li><Link to="/careers" className="hover:text-primary transition-colors">Careers</Link></li>

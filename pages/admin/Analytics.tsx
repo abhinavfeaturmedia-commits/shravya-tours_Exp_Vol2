@@ -3174,7 +3174,7 @@ export const Analytics: React.FC = () => {
          {/* ── RECEIVABLES DRILLDOWN MODAL ── */}
          {/* ========================================================================= */}
          {showReceivablesModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150">
+            <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150">
                <div className="bg-white dark:bg-[#1A2633] rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
                   {/* Modal Header */}
                   <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-amber-50/50 dark:bg-amber-950/20">

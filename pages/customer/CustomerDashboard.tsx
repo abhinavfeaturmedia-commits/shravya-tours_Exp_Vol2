@@ -64,7 +64,7 @@ function ConfirmModal({ open, title, message, onConfirm, onCancel }: {
 }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="flex items-center gap-3 mb-4">
           <div className="size-10 bg-red-50 rounded-2xl flex items-center justify-center text-red-500">
@@ -2188,7 +2188,7 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Concierge Support Chat Modal */}
       {showSupportModal && (
-        <div role="dialog" aria-modal="true" aria-label="Shrawello Concierge Chat" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div role="dialog" aria-modal="true" aria-label="Shrawello Concierge Chat" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-lg shadow-2xl flex flex-col h-[520px] max-h-[88vh] overflow-hidden">
             <div className="p-4 border-b border-[#EDE8DF] bg-[#FDFBF7] flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -2241,7 +2241,7 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Document Upload Modal */}
       {showUploadModal && (
-        <div role="dialog" aria-modal="true" aria-label="Upload to Secure Vault" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div role="dialog" aria-modal="true" aria-label="Upload to Secure Vault" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-display font-bold text-base text-slate-900">Upload to Secure Vault</h3>
@@ -2302,7 +2302,7 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Account Settings & Password Modal */}
       {showProfileModal && (
-        <div role="dialog" aria-modal="true" aria-label="Account and Profile Settings" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowProfileModal(false)}>
+        <div role="dialog" aria-modal="true" aria-label="Account and Profile Settings" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowProfileModal(false)}>
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto overscroll-contain" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-6 pb-3 border-b border-[#EDE8DF]">
               <h3 className="font-display font-bold text-lg text-slate-900">Account & Profile Settings</h3>
@@ -2403,7 +2403,7 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Command Palette Modal (⌘K) */}
       {showCommandPalette && (
-        <div role="dialog" aria-modal="true" aria-label="Quick navigation search" className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowCommandPalette(false)}>
+        <div role="dialog" aria-modal="true" aria-label="Quick navigation search" className="fixed inset-0 z-[300] flex items-start justify-center pt-20 p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowCommandPalette(false)}>
           <div className="bg-white rounded-3xl border border-[#EDE8DF] w-full max-w-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-[#EDE8DF] flex items-center gap-3">
               <span className="material-symbols-outlined text-[20px] text-slate-400" aria-hidden="true">search</span>
@@ -2447,7 +2447,7 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* AI Packing Checklist Modal */}
       {showChecklistModal && (
-        <div role="dialog" aria-modal="true" aria-label="AI Trip Packing Checklist" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowChecklistModal(false)}>
+        <div role="dialog" aria-modal="true" aria-label="AI Trip Packing Checklist" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowChecklistModal(false)}>
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto overscroll-contain" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#EDE8DF]">
               <div className="flex items-center gap-2">
@@ -2526,7 +2526,7 @@ export const CustomerDashboard: React.FC = () => {
 
       {/* Pay Modal for balance due */}
       {showPayModal && (
-        <div role="dialog" aria-modal="true" aria-label="Submit Payment Proof" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowPayModal(false)}>
+        <div role="dialog" aria-modal="true" aria-label="Submit Payment Proof" className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in" onClick={() => setShowPayModal(false)}>
           <div className="bg-white rounded-3xl border border-[#EDE8DF] p-6 sm:p-8 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-[#EDE8DF]">
               <h3 className="font-display font-bold text-base text-slate-900">Submit Payment Proof</h3>

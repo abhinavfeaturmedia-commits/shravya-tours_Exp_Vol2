@@ -141,7 +141,7 @@ export const SendEmailModal: React.FC<SendEmailModalProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
         <div 
           className="w-full max-w-lg bg-white dark:bg-[#1A2633] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
           onClick={e => e.stopPropagation()}
@@ -434,7 +434,7 @@ export const SendEmailModal: React.FC<SendEmailModalProps> = ({
 
       {/* Live HTML Preview Modal */}
       {isPreviewOpen && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
           <div 
             className="w-full max-w-3xl bg-white dark:bg-[#0f172a] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-[85vh]"
             onClick={e => e.stopPropagation()}

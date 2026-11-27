@@ -43,7 +43,7 @@ const FeedbackModal: React.FC<{
 }> = ({ onSubmit, onClose }) => {
     const [text, setText] = useState('');
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm no-print px-4">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm no-print px-4">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 relative animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <button onClick={onClose} className="absolute top-4 right-4 p-1 rounded-full hover:bg-stone-100">
                     <X size={18} className="text-stone-500" />
@@ -82,7 +82,7 @@ const FeedbackModal: React.FC<{
 
 // ─── Success Screen ───────────────────────────────────────────────────────────
 const ApprovedBanner: React.FC = () => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-white no-print px-4">
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-white no-print px-4">
         <div className="text-center max-w-sm">
             <div className="size-28 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-6 animate-bounce">
                 <CheckCircle2 size={56} className="text-emerald-500" />

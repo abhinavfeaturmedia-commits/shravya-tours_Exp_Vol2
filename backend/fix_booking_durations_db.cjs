@@ -25,9 +25,9 @@ async function run() {
             const start = toLocalISO(r.booking_date);
             const end = toLocalISO(r.end_date);
             if (start && end) {
-                const sD = new Date(start);
-                const eD = new Date(end);
-                const calcDays = Math.max(1, Math.round((eD.getTime() - sD.getTime()) / 86400000) + 1);
+                const [sy, sm, sd] = start.split('-').map(Number);
+                const [ey, em, ed] = end.split('-').map(Number);
+                const calcDays = Math.max(1, Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000) + 1);
                 
                 if (r.duration_days !== calcDays) {
                     await pool.query("UPDATE bookings SET duration_days = ? WHERE id = ?", [calcDays, r.id]);

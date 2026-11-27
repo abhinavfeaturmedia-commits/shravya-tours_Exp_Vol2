@@ -992,7 +992,7 @@ export const SupportInbox: React.FC = () => {
 
       {/* ── MOBILE: Customer Profile Slide-Over Drawer Modal ── */}
       {showMobileProfile && selectedConversation && (
-        <div className="fixed inset-0 z-[160] lg:hidden flex justify-end bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-[250] lg:hidden flex justify-end bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="w-full max-w-sm h-full bg-white dark:bg-slate-950 shadow-2xl flex flex-col overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 animate-in slide-in-from-right">
             {/* Header */}
             <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between sticky top-0 bg-white dark:bg-slate-950 z-10 shadow-xs">

@@ -2808,6 +2808,15 @@ async function permissionGuard(req, res, next) {
             return Boolean(permissions[m]?.[action]) || Boolean(fallback && permissions[fallback]?.[action]);
         });
 
+        // Allow booking creation when user has the create_booking sub-feature OR is converting a lead with convert_to_booking
+        if (!allowed && table === 'bookings' && method === 'POST') {
+            const hasCreateBookingFeat = permissions.bookings?.features?.create_booking === true;
+            const hasConvertLeadPerm = Boolean(req.body?.lead_id) && Boolean(permissions.leads?.manage) && permissions.leads?.features?.convert_to_booking !== false;
+            if (hasCreateBookingFeat || hasConvertLeadPerm) {
+                allowed = true;
+            }
+        }
+
         // Pre-tour checklist operational exception: allow operations/bookings staff to save checklist tasks
         if (!allowed && table === 'bookings' && action === 'manage') {
             const bodyKeys = Object.keys(req.body || {});
@@ -5144,18 +5153,19 @@ app.post('/api/public/chatbot', async (req, res) => {
         ).join('\n');
 
         const travelerContext = travelerName ? `
-=== ACTIVE VERIFIED VIP TRAVELER ===
+=== ACTIVE TRAVELER PROFILE ===
 Traveler Name: ${travelerName}
-WhatsApp Phone: ${travelerPhone || 'On File'}
+WhatsApp Number: ${travelerPhone || 'On File'}
 Email: ${travelerEmail || 'On File'}
-*CRITICAL:* Address ${travelerName.split(' ')[0]} warmly and respectfully by their first name. They have ALREADY unlocked their VIP Pass & verified contact details upfront. Do NOT ask for their phone number or email again. Treat them like a valued high-ticket client!
+*CRITICAL:* Address ${travelerName.split(' ')[0]} warmly by their first name. They have ALREADY shared their name and WhatsApp number and activated their ₹2,500 Early-Bird Trip Credit. Do NOT ask for their phone number again.
 ` : '';
 
-        // 5. Alex Hormozi $100M Master Sales System Prompt
-        const systemPrompt = `You are Alex Hormozi's trained AI Travel Advisor & High-Converting Closer for "Shrawello Travel Hub".
-Your mission: Turn curious website visitors into enthusiastic, booked travelers and high-value leads by applying Alex Hormozi's $100M sales, money model, and lead nurture methodologies.
+        // 5. Alex Hormozi $100M Customer-First Travel Sales Prompt (100% B2C, zero wholesale/DMC jargon)
+        const systemPrompt = `You are a Senior Personal Holiday Planner & Trip Advisor for "Shrawello Travel Hub".
+Your mission: Help everyday travelers, couples, families, and groups plan unforgettable, stress-free holidays—and convert visitors into booked travelers using Alex Hormozi's $100M Value Equation (maximize Dream Outcome & Trust, minimize Time Delay & Effort).
+CRITICAL TERMINOLOGY RULE: We are a customer-facing holiday planner, NOT a wholesale/B2B seller. NEVER use terms like "wholesale", "DMC", "B2B", "middleman", or "portal markups". Always speak warmly and clearly to the traveler!
 ${travelerContext}
-=== LIVE SHRAWELLO CATALOG & VALUE ASSETS ===
+=== LIVE SHRAWELLO PACKAGES & OFFERINGS ===
 AVAILABLE PACKAGES:
 ${packageContext}
 
@@ -5163,7 +5173,7 @@ AVAILABLE MEMBERSHIP PLANS:
 ${plansContext}
 
 ACTIVE PROMO COUPONS:
-${couponsContext || '- SHRAW-PASS-80: Instant discount on multi-category bookings\n- Special Seasonal Early-Bird discounts available'}
+${couponsContext || '- SHRAW-PASS-80: Instant savings on eligible bookings\n- ₹2,500 Early-Bird Trip Credit available on custom tour packages'}
 
 CAR RENTAL & FLEET OPTIONS:
 ${vehiclesContext || '- Sedan (4 Seater): Rs.13/km\n- MPV / Innova (6-7 Seater): Rs.17/km'}
@@ -5171,47 +5181,44 @@ ${vehiclesContext || '- Sedan (4 Seater): Rs.13/km\n- MPV / Innova (6-7 Seater):
 REAL VERIFIED TRAVELER REVIEWS (SOCIAL PROOF):
 ${testimonialsContext || '- "Shrawello arranged a dedicated Innova Crysta throughout our trip with 5-star hotels. Completely stress-free!" - Prashant T. (5/5★)'}
 
-=== THE 6 HORMOZI CONVERSATIONAL SALES RULES ===
-1. THE 4 BUYER AVATARS (Detect & Adapt):
-   - Honeymoon / Couples: Prioritize romance, candlelight dinners, scenic views, private cab, luxury resorts.
-   - Families with Kids/Elders: Prioritize comfort, easy pacing, ground-floor/spacious rooms, dedicated verified chauffeur.
-   - Friends / Adventure: Prioritize thrilling activities (rafting, scuba, nightlife), central location, budget efficiency.
-   - Corporate / Solo: Prioritize speed, premium hotels, seamless Wi-Fi, GST invoices, private transfers.
+=== THE 6 HORMOZI CUSTOMER CONVERSION PRINCIPLES ===
+1. ADAPT TO THE TRAVELER PROFILE:
+   - Honeymoon / Couples: Emphasize privacy, scenic stays, romantic experiences, and smooth private cab transfers.
+   - Families with Kids/Elders: Emphasize comfort, relaxed pacing, spacious family rooms, and an experienced verified driver.
+   - Friends / Adventure: Emphasize standout activities, central stays, and best value per person.
+   - Corporate / Solo: Emphasize reliability, quality Wi-Fi, crisp GST billing, and punctual transfers.
 
 2. THE ACQ CADENCE (Acknowledge -> Compliment -> Question):
-   Never give a dry robotic answer. Always acknowledge their destination, compliment their choice, and ask the next high-value qualifying question (Dates, Group size, or Style).
+   Never sound robotic. Warmly acknowledge their destination, compliment their choice, and ask ONE crisp next qualifying question (travel dates, number of travelers, or departure city).
 
-3. THE GRAND SLAM OFFER STACK ($100M Offers):
-   Whenever quoting or prescribing a trip, NEVER state a naked price. Frame it as the **Direct DMC Wholesale Rate** vs the retail market price:
-   - Retail Market Value: Rs. 32,000+ (what online portals charge with commissions)
-   - BUNDLED BONUSES (100% Free): Dedicated sanitized cab + verified chauffeur throughout, 4-star boutique stay, breakfast & dinner, 24/7 On-Trip WhatsApp Concierge, and zero-hidden-fee guarantee (fuel, tolls, parking 100% included).
-   - Your Direct DMC Wholesale Rate: Rs. [Actual Price] (You save over Rs. 15,000+).
+3. THE GRAND SLAM HOLIDAY VALUE STACK ($100M Offers — Customer-Facing):
+   Never drop a bare price alone. Clearly show everything included so the value feels effortless and complete:
+   - **Included in Your Trip:** Handpicked verified hotel stay with daily breakfast, dedicated private sanitized cab + verified driver, **all fuel, tolls, parking & driver allowance included**, 24/7 On-Trip WhatsApp Concierge, and 7-day free date rescheduling.
+   - **All-Inclusive Package Price:** Rs. [Actual Price] (Eligible for up to ₹2,500 Early-Bird Trip Credit on custom bookings).
 
-4. RISK-REVERSAL & GUARANTEES:
-   Reassure with Shrawello's 3 guarantees:
-   - Price Match Guarantee: "If you find an identical verified itinerary cheaper, we match it + give you Rs.1,000 credit."
-   - Zero Surprise Charges: "Tolls, parking, driver night charges are 100% covered upfront."
-   - Flexible Rescheduling: "Modify dates up to 7 days before departure with zero penalties."
+4. RISK REVERSAL (Remove Booking Fear):
+   Reassure naturally with Shrawello's 3 traveler guarantees:
+   - **Best Price Match + ₹1,000 Credit:** If you find the exact same verified itinerary cheaper elsewhere, we match it + add ₹1,000 credit.
+   - **Zero Surprise Bills:** Fuel, tolls, parking, and driver night charges are covered upfront.
+   - **Flexible Rescheduling:** Change travel dates up to 7 days before departure with zero penalty.
 
-5. PRESCRIPTION SELLING & FEATURE DOWNSELLS (Never Discount Without a Trade):
-   - Treat your recommendation like a doctor prescribing the only viable solution.
-   - If they say "out of budget", NEVER give a naked discount. Perform a Feature Downsell:
-     "We never compromise on safety or private cab standards, but if we swap the 5-star resort for a highly rated 4-star boutique heritage stay, we drop the quote to Rs.13,999. Fair trade?"
-   - Payment Plan: "You only need a 30% deposit today to lock in wholesale rates, and the rest before departure."
+5. PRESCRIPTION & SMART TRADEOFFS (Feature Downsell When Over Budget):
+   - Guide confidently like a trusted specialist recommending the best-fit option.
+   - If a trip exceeds their budget, never compromise on safety or private cab reliability—offer a smart tradeoff instead (e.g., switching from a 5-star resort to a top-rated 4-star boutique stay to hit their target budget).
+   - **Easy Booking Deposit:** "You can lock your hotels and cab with just a 30% deposit today and pay the rest before departure."
 
-6. THE ASSUMED CLOSE & A/B CHOICES (BAMFAM):
-   - Never ask "Do you want to book?" (invites a "No").
-   - Always offer an A/B choice: "Would you prefer morning airport pickup or afternoon check-in?" / "Should we reserve a private Sedan or a spacious SUV for your group?"
-   - 1-10 Temperature Check: If they stall: "On a scale of 1 to 10, how set are you on making this trip happen? What would make it a 10 for you?"
-   - Continuity / Membership Pitch: "If you join the Shrawello Silver Club (Rs.2,499/yr), you get an instant Rs.4,000 off this booking + 10% off all future tours for 12 months. You literally profit on day 1!"
+6. EFFORTLESS A/B NEXT STEP (Assumed Close):
+   - Never ask dead-end questions like "Do you want to book?"
+   - End with one easy A/B choice: e.g., "Would you prefer a cozy 4-star boutique stay or a luxury resort?" or "Should we plan pickup from Pune/Mumbai or directly from the destination airport?"
+   - Membership Mention (only when relevant): "Joining Shrawello Membership (Rs.2,499/yr) gives instant savings on your trip plus 10% off holidays for 12 months."
 
-=== OUTPUT & INTEGRATION GUIDELINES ===
-- CRITICAL: Output ONLY your direct conversational message to the traveler. Do NOT output internal reasoning, planning steps, or meta-commentary.
-- Keep answers punchy, warm, formatting with bullet points and bold highlights.
-- Linkage: Format package references as markdown links: [Package Title](#/packages/package_id) with their real ID from the list.
-- Lead Capture: If a new phone/contact is shared, append: [CREATE_LEAD: {"name":"Full Name", "phone":"Phone/WhatsApp", "email":"Email or N/A", "destination":"Destination", "budget":"Budget or TBD", "preferences":"Travel preferences, dates, number of travelers, avatar", "score":"Green"}]
-- Quick Suggestions: ALWAYS append 2 to 4 contextual quick reply buttons at the very end in format:
-  [SUGGESTIONS: ["🏔️ 5-Day Itinerary", "💰 Under ₹20k Deal", "💬 Chat on WhatsApp"]]
+=== OUTPUT & FORMATTING RULES ===
+- Output ONLY your direct reply to the traveler—no internal reasoning or meta-commentary.
+- Keep responses clean, warm, and clutter-free (concise bullets, short paragraphs, easy to scan on mobile).
+- Format package links cleanly as: [Package Title](#/packages/package_id) using real IDs from the catalog above.
+- Lead Capture: If the traveler shares new contact details (phone/email) not already on file, append: [CREATE_LEAD: {"name":"Full Name", "phone":"Phone/WhatsApp", "email":"Email or N/A", "destination":"Destination", "budget":"Budget or TBD", "preferences":"Travel preferences, dates, number of travelers", "score":"Green"}]
+- Quick Suggestions: ALWAYS append 2 to 4 short contextual next-step buttons at the very end:
+  [SUGGESTIONS: ["🗓️ Share My Travel Dates", "✨ See 4-Star Option", "💬 Ask an Expert on WhatsApp"]]
 `;
 
         // 6. Generate AI reply via OpenRouter Cascade
@@ -5402,7 +5409,7 @@ const findMatchingCustomerInDb = async (phone, email) => {
         console.error('[Public Leads] findMatchingCustomerInDb error:', e.message);
     }
     return null;
-};
+}
 
 // Public Lead submission API (for website forms, package inquiry, quick booking & chatbot)
 app.post('/api/public/leads', async (req, res) => {
@@ -6910,6 +6917,29 @@ function formatYMD(dateInput) {
         return `${y}-${m}-${day}`;
     }
     return null;
+}
+
+/**
+ * Keeps bookings.duration_days and bookings.end_date consistent on POST/PUT
+ * using inclusive calendar days (e.g. Nov 23..Nov 29 => 7 days).
+ */
+function syncBookingDurationFields(body, existingBooking = null) {
+    const startYmd = formatYMD(body.booking_date !== undefined ? body.booking_date : existingBooking?.booking_date);
+    const endYmd = formatYMD(body.end_date !== undefined ? body.end_date : existingBooking?.end_date);
+    const datesModified = existingBooking === null || body.booking_date !== undefined || body.end_date !== undefined;
+
+    if (datesModified && startYmd && endYmd) {
+        const [sy, sm, sd] = startYmd.split('-').map(Number);
+        const [ey, em, ed] = endYmd.split('-').map(Number);
+        const diff = Math.round((Date.UTC(ey, em - 1, ed) - Date.UTC(sy, sm - 1, sd)) / 86400000);
+        if (diff >= 0) {
+            body.duration_days = diff + 1;
+        }
+    } else if (body.duration_days !== undefined && Number(body.duration_days) > 0 && startYmd && body.end_date === undefined) {
+        const [sy, sm, sd] = startYmd.split('-').map(Number);
+        const endUtc = new Date(Date.UTC(sy, sm - 1, sd + Math.round(Number(body.duration_days)) - 1));
+        body.end_date = `${endUtc.getUTCFullYear()}-${String(endUtc.getUTCMonth() + 1).padStart(2, '0')}-${String(endUtc.getUTCDate()).padStart(2, '0')}`;
+    }
 }
 
 function getIndianFinancialYear(dateInput) {
@@ -8605,6 +8635,8 @@ app.post('/api/crud/:table', authMiddleware, validateTable, writeGuard, permissi
 
         // ── Booking Creation Idempotency & Duplicate Prevention Guard ──
         if (table === 'bookings') {
+            syncBookingDurationFields(body);
+
             if (body.lead_id) {
                 const [existingByLead] = await pool.query(
                     "SELECT * FROM bookings WHERE lead_id = ? AND created_at >= NOW() - INTERVAL 15 SECOND ORDER BY created_at DESC LIMIT 1",
@@ -9017,6 +9049,10 @@ app.put('/api/crud/:table/:id', authMiddleware, validateTable, writeGuard, permi
                     }
                 }
             }
+        }
+
+        if (table === 'bookings') {
+            syncBookingDurationFields(body, oldBooking);
         }
 
         if (Object.keys(body).length > 0) {
@@ -10044,38 +10080,302 @@ app.post('/api/crud/:table/upsert', authMiddleware, validateTable, writeGuard, p
 // ═══════════════════════════════════════════
 
 // POST /api/leads/:id/convert — Atomically convert a lead into a booking
-// Creates the booking AND updates the lead in a single DB transaction.
-// If either step fails, the whole operation is rolled back.
+// Resolves/creates customer, creates booking, updates lead status + lock, and logs activity in a single DB transaction.
+// If any step fails, the whole operation is rolled back.
 app.post('/api/leads/:id/convert', authMiddleware, async (req, res) => {
     const leadId = req.params.id;
-    const bookingData = req.body;
+    const rawBody = req.body || {};
 
-    if (!bookingData || Object.keys(bookingData).length === 0) {
+    if (!rawBody || Object.keys(rawBody).length === 0) {
         return res.status(400).json({ error: 'Booking data is required' });
     }
+
+    const { permissions, queryScope, isAdmin, department, staffId: resolvedStaffId } = await getStaffPermissionsAndScope(req.user);
+    const isGlobalAdmin = isAdmin || req.user?.role === 'admin' || req.user?.role === 'Admin';
+
+    if (!isGlobalAdmin) {
+        const canConvertLead = Boolean(permissions.leads?.manage) && permissions.leads?.features?.convert_to_booking !== false;
+        const canManageBookings = Boolean(permissions.bookings?.manage) || permissions.bookings?.features?.create_booking === true;
+        const canManageOps = Boolean(permissions.operations?.manage);
+        if (!canConvertLead && !canManageBookings && !canManageOps) {
+            return res.status(403).json({ error: 'Unauthorized: You do not have permission to convert leads into bookings.' });
+        }
+    }
+
+    const allowMultiple = Boolean(rawBody.allow_multiple || rawBody.allowMultiple);
+    const customerNotesInput = Array.isArray(rawBody.customer_notes) ? rawBody.customer_notes : [];
+    const leadPreferencesInput = rawBody.lead_preferences && typeof rawBody.lead_preferences === 'object' ? rawBody.lead_preferences : null;
 
     const conn = await pool.getConnection();
     try {
         await conn.beginTransaction();
 
-        // 1. Verify lead exists and isn't already converted
-        const [[lead]] = await conn.query('SELECT id, status, converted_booking_id FROM leads WHERE id = ?', [leadId]);
+        // 1. Verify lead exists and check scope ownership
+        const [[lead]] = await conn.query('SELECT * FROM leads WHERE id = ?', [leadId]);
         if (!lead) {
             await conn.rollback();
             conn.release();
             return res.status(404).json({ error: 'Lead not found' });
         }
-        if (lead.converted_booking_id) {
-            await conn.rollback();
-            conn.release();
-            return res.status(409).json({ error: 'Lead has already been converted to a booking' });
+
+        if (!isGlobalAdmin) {
+            const userScopeStr = String(queryScope || '').toLowerCase();
+            const leadScopeStr = String(permissions.leads?.scope || '').toLowerCase();
+            const bookingScopeStr = String(permissions.bookings?.scope || '').toLowerCase();
+            const hasAllScope = userScopeStr.includes('all') || userScopeStr === 'global'
+                || leadScopeStr === 'all' || leadScopeStr === 'global'
+                || bookingScopeStr === 'all' || bookingScopeStr === 'global';
+
+            if (!hasAllScope && lead.assigned_to) {
+                const effStaffId = String(resolvedStaffId || req.user?.staffId || '');
+                const ownerId = String(lead.assigned_to || '');
+                let hasOwnership = Boolean(effStaffId && ownerId === effStaffId);
+
+                if (!hasOwnership && lead.assigned_staff_ids) {
+                    try {
+                        const parsedIds = typeof lead.assigned_staff_ids === 'string'
+                            ? JSON.parse(lead.assigned_staff_ids)
+                            : lead.assigned_staff_ids;
+                        if (Array.isArray(parsedIds) && parsedIds.map(String).includes(effStaffId)) {
+                            hasOwnership = true;
+                        }
+                    } catch (_) {}
+                }
+
+                if (!hasOwnership && effStaffId) {
+                    try {
+                        const downline = await getStaffDownline(pool, Number(effStaffId));
+                        if (downline?.ids?.map(String).includes(ownerId)) {
+                            hasOwnership = true;
+                        }
+                    } catch (_) {}
+                }
+
+                if (!hasOwnership && (userScopeStr.includes('department') || leadScopeStr === 'department' || bookingScopeStr === 'department') && department) {
+                    const [deptRows] = await conn.query('SELECT department FROM staff_members WHERE id = ?', [ownerId]);
+                    if (deptRows.length > 0 && deptRows[0].department === department) {
+                        hasOwnership = true;
+                    }
+                }
+
+                if (!hasOwnership) {
+                    await conn.rollback();
+                    conn.release();
+                    return res.status(403).json({ error: 'Unauthorized: You cannot convert a lead outside your ownership scope.' });
+                }
+            }
         }
 
-        // 2. Create the booking
+        // 2. Check existing active conversion lock (allow re-conversion if explicitly confirmed or if linked booking is cancelled/deleted)
+        if (lead.converted_booking_id && !allowMultiple) {
+            const [[existingLinked]] = await conn.query('SELECT id, status FROM bookings WHERE id = ?', [lead.converted_booking_id]);
+            if (existingLinked && String(existingLinked.status || '').toLowerCase() !== 'cancelled') {
+                await conn.rollback();
+                conn.release();
+                return res.status(409).json({ error: 'Lead has already been converted to a booking' });
+            }
+        }
+
+        // 10s rapid double-click idempotency guard
+        if (!allowMultiple) {
+            const [recentBks] = await conn.query(
+                'SELECT * FROM bookings WHERE lead_id = ? AND created_at >= NOW() - INTERVAL 10 SECOND ORDER BY created_at DESC LIMIT 1',
+                [leadId]
+            );
+            if (recentBks.length > 0) {
+                await conn.rollback();
+                conn.release();
+                return res.json({
+                    status: 'success',
+                    booking: recentBks[0],
+                    customerId: recentBks[0].customer_id || null,
+                    leadId,
+                    isDuplicatePrevented: true
+                });
+            }
+        }
+
+        // 3. Sanitize & filter booking payload against physical columns
+        let bookingData = sanitizeDbBody(rawBody);
+        bookingData = await filterDbBodyByTable('bookings', bookingData);
+
         const bookingId = bookingData.id || crypto.randomUUID();
         bookingData.id = bookingId;
         bookingData.lead_id = leadId;
 
+        const cleanName = String(bookingData.customer_name || lead.name || 'Unnamed Traveler').trim() || 'Unnamed Traveler';
+        const cleanEmail = String(bookingData.customer_email ?? lead.email ?? '').trim();
+        const cleanPhone = String(bookingData.customer_phone ?? lead.phone ?? '').trim();
+
+        bookingData.customer_name = cleanName;
+        bookingData.customer_email = cleanEmail;
+        bookingData.customer_phone = cleanPhone;
+        bookingData.type = bookingData.type || lead.type || 'Tour';
+        bookingData.title = bookingData.title || `Trip to ${lead.destination || 'Destination'}`;
+
+        // Ensure booking_date is always a valid YYYY-MM-DD (NOT NULL column)
+        const todayYmd = formatYMD(new Date()) || new Date().toISOString().split('T')[0];
+        bookingData.booking_date = formatYMD(bookingData.booking_date) || formatYMD(lead.start_date) || todayYmd;
+        bookingData.end_date = formatYMD(bookingData.end_date) || formatYMD(lead.end_date) || null;
+        bookingData.total_price = Number(bookingData.total_price ?? lead.potential_value ?? 0) || 0;
+
+        const pAdult = Number(bookingData.pax_adult ?? bookingData.number_of_people ?? lead.pax_adult ?? 1) || 1;
+        const pChild = Number(bookingData.pax_child ?? lead.pax_child ?? 0) || 0;
+        const pInfant = Number(bookingData.pax_infant ?? lead.pax_infant ?? 0) || 0;
+        bookingData.pax_adult = pAdult;
+        bookingData.pax_child = pChild;
+        bookingData.pax_infant = pInfant;
+        bookingData.number_of_people = Number(bookingData.number_of_people ?? pAdult) || pAdult;
+        bookingData.pax_count = Number(bookingData.pax_count ?? (pAdult + pChild)) || (pAdult + pChild);
+        bookingData.status = bookingData.status || 'pending';
+        bookingData.payment_status = bookingData.payment_status || 'pending';
+
+        syncBookingDurationFields(bookingData);
+
+        // Normalize assigned_to & assigned_staff_ids
+        let staffIds = [];
+        if (bookingData.assigned_staff_ids !== undefined && bookingData.assigned_staff_ids !== null) {
+            let parsed = bookingData.assigned_staff_ids;
+            if (typeof parsed === 'string') {
+                try { parsed = JSON.parse(parsed); } catch (_) { parsed = []; }
+            }
+            if (Array.isArray(parsed)) {
+                staffIds = Array.from(new Set(parsed.map(Number).filter(n => !isNaN(n) && n > 0 && n !== 999)));
+            }
+        }
+        let primaryAssigned = bookingData.assigned_to !== undefined && bookingData.assigned_to !== null && bookingData.assigned_to !== ''
+            ? Number(bookingData.assigned_to)
+            : (lead.assigned_to ? Number(lead.assigned_to) : null);
+        if (isNaN(primaryAssigned) || primaryAssigned <= 0 || primaryAssigned === 999) {
+            primaryAssigned = resolvedStaffId ? Number(resolvedStaffId) : null;
+        }
+        if (primaryAssigned && !staffIds.includes(primaryAssigned)) {
+            staffIds.unshift(primaryAssigned);
+        }
+        // Ensure converting non-admin staff member remains co-assigned so they can view the created booking
+        if (!isGlobalAdmin && resolvedStaffId && !staffIds.includes(Number(resolvedStaffId))) {
+            staffIds.push(Number(resolvedStaffId));
+        }
+        bookingData.assigned_to = primaryAssigned || (staffIds[0] || null);
+        bookingData.assigned_staff_ids = JSON.stringify(staffIds);
+
+        // 4. Atomically resolve, backfill, or create Customer inside the transaction
+        let existingCustomer = null;
+        const candidateCustomerId = bookingData.customer_id || lead.customer_id || null;
+        if (candidateCustomerId) {
+            const [cById] = await conn.query('SELECT * FROM customers WHERE id = ? LIMIT 1', [candidateCustomerId]);
+            if (cById.length > 0) existingCustomer = cById[0];
+        }
+        if (!existingCustomer && cleanEmail) {
+            const [cByEmail] = await conn.query('SELECT * FROM customers WHERE LOWER(TRIM(email)) = LOWER(?) LIMIT 1', [cleanEmail]);
+            if (cByEmail.length > 0) existingCustomer = cByEmail[0];
+        }
+        if (!existingCustomer) {
+            const normPhone = normalisePhone(cleanPhone);
+            if (normPhone && normPhone.length >= 6) {
+                const [cByPhone] = await conn.query(`
+                    SELECT * FROM customers
+                    WHERE RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '()', ''), 10) = ?
+                       OR RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(alt_phone, ' ', ''), '-', ''), '+', ''), '()', ''), 10) = ?
+                       OR RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(whatsapp, ' ', ''), '-', ''), '+', ''), '()', ''), 10) = ?
+                    LIMIT 1
+                `, [normPhone, normPhone, normPhone]);
+                if (cByPhone.length > 0) existingCustomer = cByPhone[0];
+            }
+        }
+
+        let parsedLeadPrefs = leadPreferencesInput || {};
+        if (!leadPreferencesInput && lead.preferences) {
+            if (typeof lead.preferences === 'string') {
+                try { parsedLeadPrefs = JSON.parse(lead.preferences); } catch {
+                    parsedLeadPrefs = { dietary: [], flight: [], accommodation: [], note: lead.preferences };
+                }
+            } else if (typeof lead.preferences === 'object') {
+                parsedLeadPrefs = lead.preferences;
+            }
+        }
+
+        let resolvedCustomerId;
+        if (existingCustomer) {
+            resolvedCustomerId = existingCustomer.id;
+            const custUpdateFields = [];
+            const custUpdateVals = [];
+
+            if (!existingCustomer.address && (bookingData.residential_address || lead.residential_address)) {
+                custUpdateFields.push('address = ?');
+                custUpdateVals.push(bookingData.residential_address || lead.residential_address);
+            }
+            if (!existingCustomer.office_address && (bookingData.office_address || lead.office_address)) {
+                custUpdateFields.push('office_address = ?');
+                custUpdateVals.push(bookingData.office_address || lead.office_address);
+            }
+            if (!existingCustomer.alt_phone && (bookingData.alt_phone || lead.alt_phone)) {
+                custUpdateFields.push('alt_phone = ?');
+                custUpdateVals.push(bookingData.alt_phone || lead.alt_phone);
+            }
+            if (!existingCustomer.whatsapp && (bookingData.whatsapp || lead.whatsapp)) {
+                custUpdateFields.push('whatsapp = ?');
+                custUpdateVals.push(bookingData.whatsapp || lead.whatsapp);
+            }
+
+            if (customerNotesInput.length > 0) {
+                let currentNotes = [];
+                try {
+                    currentNotes = typeof existingCustomer.notes === 'string'
+                        ? JSON.parse(existingCustomer.notes)
+                        : (Array.isArray(existingCustomer.notes) ? existingCustomer.notes : []);
+                } catch (_) { currentNotes = []; }
+                if (!Array.isArray(currentNotes)) currentNotes = [];
+                const existingNoteIds = new Set(currentNotes.map(n => n?.id));
+                const newNotes = customerNotesInput.filter(n => n && !existingNoteIds.has(n.id));
+                if (newNotes.length > 0) {
+                    custUpdateFields.push('notes = ?');
+                    custUpdateVals.push(JSON.stringify([...newNotes, ...currentNotes]));
+                }
+            }
+
+            if (parsedLeadPrefs && Object.keys(parsedLeadPrefs).length > 0) {
+                let currentPrefs = {};
+                try {
+                    currentPrefs = typeof existingCustomer.preferences === 'string'
+                        ? JSON.parse(existingCustomer.preferences)
+                        : (existingCustomer.preferences || {});
+                } catch (_) { currentPrefs = {}; }
+                custUpdateFields.push('preferences = ?');
+                custUpdateVals.push(JSON.stringify({ ...currentPrefs, ...parsedLeadPrefs }));
+            }
+
+            custUpdateFields.push('bookings_count = COALESCE(bookings_count, 0) + 1');
+            custUpdateFields.push('total_spent = COALESCE(total_spent, 0) + ?');
+            custUpdateVals.push(bookingData.total_price);
+
+            custUpdateVals.push(resolvedCustomerId);
+            await conn.query(`UPDATE customers SET ${custUpdateFields.join(', ')} WHERE id = ?`, custUpdateVals);
+        } else {
+            resolvedCustomerId = `CU-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
+            await conn.query(
+                `INSERT INTO customers (id, name, email, phone, type, status, total_spent, bookings_count, notes, tags, preferences, alt_phone, whatsapp, is_whatsapp_same, address, office_address)
+                 VALUES (?, ?, ?, ?, 'New', 'Active', ?, 1, ?, '[]', ?, ?, ?, ?, ?, ?)`,
+                [
+                    resolvedCustomerId,
+                    cleanName,
+                    cleanEmail || null,
+                    cleanPhone || null,
+                    bookingData.total_price,
+                    JSON.stringify(customerNotesInput),
+                    JSON.stringify(parsedLeadPrefs || {}),
+                    bookingData.alt_phone || lead.alt_phone || null,
+                    bookingData.whatsapp || lead.whatsapp || null,
+                    bookingData.is_whatsapp_same !== undefined ? (bookingData.is_whatsapp_same ? 1 : 0) : (lead.is_whatsapp_same ?? 1),
+                    bookingData.residential_address || lead.residential_address || null,
+                    bookingData.office_address || lead.office_address || null
+                ]
+            );
+        }
+
+        bookingData.customer_id = resolvedCustomerId;
+
+        // 5. Insert the booking
         const columns = Object.keys(bookingData);
         const values = Object.values(bookingData).map(v =>
             typeof v === 'object' && v !== null ? JSON.stringify(v) : v
@@ -10088,32 +10388,57 @@ app.post('/api/leads/:id/convert', authMiddleware, async (req, res) => {
             values
         );
 
-        // 3. Update lead status + link to booking (atomic)
+        const [inserted] = await conn.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+        const createdBooking = inserted[0] || { id: bookingId };
+        const bkLabel = createdBooking.booking_number ? `#${createdBooking.booking_number}` : bookingId;
+
+        // 6. Update lead status + link to booking & customer (atomic)
         await conn.query(
-            "UPDATE leads SET status = 'Won', converted_booking_id = ? WHERE id = ?",
-            [bookingId, leadId]
+            "UPDATE leads SET status = 'Converted', converted_booking_id = ?, customer_id = COALESCE(NULLIF(customer_id, ''), ?) WHERE id = ?",
+            [bookingId, resolvedCustomerId, leadId]
         );
+
+        // 7. Insert system lead log inside transaction
+        const staffInfo = await getStaffInfo(req);
+        await conn.query(
+            "INSERT INTO lead_logs (lead_id, type, content, timestamp, sender) VALUES (?, 'System', ?, NOW(), ?)",
+            [
+                leadId,
+                `Lead converted to Booking ${bkLabel} (ID: ${bookingId}). Customer profile ${existingCustomer ? 'linked and synced' : 'created and synced'}.`,
+                staffInfo.name || 'System'
+            ]
+        ).catch((logErr) => console.warn('[Lead Convert] Lead log warning:', logErr.message));
 
         await conn.commit();
         conn.release();
 
-        // Fetch the created booking
-        const [inserted] = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
-
-        // Non-transactional side effects
+        // 8. Non-transactional side effects (audit log, playbook, invoice email)
+        auditLog(
+            'RECORD_CREATED',
+            'bookings',
+            `${staffInfo.name} (ID: #${staffInfo.id || 'N/A'}) created booking: ${cleanName}`,
+            staffInfo.email || staffInfo.name,
+            {
+                staffId: staffInfo.id,
+                staffName: staffInfo.name,
+                entityType: 'booking',
+                entityId: bookingId,
+                details: `Converted from Lead ${leadId}`
+            }
+        );
         auditLog('Convert', 'leads', `Converted lead ${leadId} to booking ${bookingId}`, req.user?.email);
 
-        // Trigger booking playbook
         if (bookingData.type) {
-            generateBookingPlaybook(bookingId, bookingData.type, bookingData.assigned_to, req.user?.email);
+            generateBookingPlaybook(bookingId, bookingData.type, bookingData.assigned_to, req.user?.email)
+                .catch(pbErr => console.warn('[Lead Convert] Playbook warning (non-fatal):', pbErr.message));
         }
 
-        // Trigger invoice email if already confirmed/paid
         if (/^(confirmed|completed)$/i.test(bookingData.status) || /^paid$/i.test(bookingData.payment_status)) {
             sendInvoiceEmail(bookingId);
+            autoCalculatePartnerCommission(bookingId);
         }
 
-        res.json({ status: 'success', booking: inserted[0] || { id: bookingId }, leadId });
+        res.status(201).json({ status: 'success', booking: createdBooking, customerId: resolvedCustomerId, leadId });
     } catch (error) {
         await conn.rollback().catch(() => {});
         conn.release();

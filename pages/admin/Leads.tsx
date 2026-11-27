@@ -52,10 +52,15 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export const Leads: React.FC = () => {
-    const { addFollowUp, followUps, customers, addCustomer, tasks, updateTask, addTask, deleteTask, updateFollowUp } = useData();
-    const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, isLoading, refetchLeads } = useLeads();
-    const { bookings, addBooking } = useBookings();
+    const { addFollowUp, followUps, customers, tasks, updateTask, addTask, deleteTask, updateFollowUp } = useData();
+    const { leads, addLead, updateLead, deleteLead, addLeadLog, updateLeadLog, deleteLeadLog, convertLeadToBooking, isLoading, refetchLeads } = useLeads();
+    const { bookings } = useBookings();
     const { currentUser, staff, hasPermission, canAccess, getModuleScope } = useAuth();
+    const canConvertLeadToBooking =
+        (hasPermission('leads', 'manage') && canAccess('leads', 'convert_to_booking')) ||
+        hasPermission('bookings', 'manage') ||
+        canAccess('bookings', 'create_booking') ||
+        hasPermission('operations', 'manage');
     const { transfers, refetchTransfers } = useTransfers();
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const navigate = useNavigate();
@@ -550,7 +555,7 @@ export const Leads: React.FC = () => {
         }
 
         if (newStatus === 'Converted') {
-            handleConvertToBooking();
+            handleConvertToBooking(lead);
             return;
         }
 
@@ -783,60 +788,69 @@ export const Leads: React.FC = () => {
         }
     };
 
-    const handleConvertToBooking = async () => {
-        if (!selectedLead || isConverting) return;
+    const handleConvertToBooking = async (targetLeadParam?: Lead) => {
+        const leadToConvert = targetLeadParam || selectedLead;
+        if (!leadToConvert || isConverting) return;
 
+        if (!canConvertLeadToBooking) {
+            toast.error('Permission Denied: You do not have permission to convert leads to bookings.');
+            return;
+        }
+
+        let allowMultiple = false;
         // Guard against accidental double conversion
-        if (selectedLead.status === 'Converted' || selectedLead.convertedBookingId) {
+        if (leadToConvert.status === 'Converted' || leadToConvert.convertedBookingId) {
             const ok = await confirmAction({
                 title: 'Already Converted Lead',
-                message: `This lead was already converted to a booking${selectedLead.convertedBookingId ? ` (ID: ${selectedLead.convertedBookingId})` : ''}.\n\nAre you sure you want to create ANOTHER booking for it?`,
+                message: `This lead was already converted to a booking${leadToConvert.convertedBookingId ? ` (ID: ${leadToConvert.convertedBookingId})` : ''}.\n\nAre you sure you want to create ANOTHER booking for it?`,
                 confirmLabel: 'Create Another Booking',
                 tone: 'warning',
             });
             if (!ok) {
                 return;
             }
+            allowMultiple = true;
         }
 
         // Validation: require budget and start date
-        if (!selectedLead.potentialValue || selectedLead.potentialValue <= 0) {
+        if (!leadToConvert.potentialValue || leadToConvert.potentialValue <= 0) {
             toast.error('Please set a budget before converting this lead to a booking.');
             return;
         }
-        if (!selectedLead.startDate) {
+        if (!leadToConvert.startDate) {
             toast.error('Please set a start date before converting this lead.');
             return;
         }
 
         setIsConverting(true);
 
-        // 1. Deep Logic: Check for existing Customer using normalized phone/email
-        let targetCustomerId: string | undefined;
-        const leadNormPhone = normalisePhone(selectedLead.phone);
+        // Check for existing Customer in local cache as a fast hint (backend also resolves/creates atomically inside TX)
+        const leadNormPhone = normalisePhone(leadToConvert.phone);
+        const leadEmailClean = leadToConvert.email?.trim().toLowerCase() || '';
         const existingCustomer = customers?.find((c: Customer) => {
-            const eMatch = c.email?.toLowerCase() === selectedLead.email?.toLowerCase() && c.email?.trim() !== '';
+            const cEmailClean = c.email?.trim().toLowerCase() || '';
+            const eMatch = Boolean(leadEmailClean && cEmailClean && cEmailClean === leadEmailClean);
             const cNormPhone = normalisePhone(c.phone);
-            const pMatch = leadNormPhone && cNormPhone && (cNormPhone === leadNormPhone || (leadNormPhone.length >= 10 && cNormPhone.length >= 10 && cNormPhone.slice(-10) === leadNormPhone.slice(-10)));
+            const pMatch = Boolean(leadNormPhone && cNormPhone && (cNormPhone === leadNormPhone || (leadNormPhone.length >= 10 && cNormPhone.length >= 10 && cNormPhone.slice(-10) === leadNormPhone.slice(-10))));
             return eMatch || pMatch;
         });
 
         // Transform Lead logs into initial Booking Notes & Customer Notes
-        const inheritedBookingNotes: any[] = (selectedLead.logs || []).map(l => ({
+        const inheritedBookingNotes: any[] = (leadToConvert.logs || []).map(l => ({
             id: `NOTE-LD-${l.id}`,
             text: `[Lead Log - ${l.type}]: ${l.content}`,
             author: l.sender || 'System',
             date: l.timestamp || new Date().toISOString()
         }));
-        
+
         inheritedBookingNotes.unshift({
             id: `NOTE-CONV-${Date.now()}`,
-            text: `Converted from Lead (Destination: ${selectedLead.destination}, Budget: ${formatPrice(selectedLead.potentialValue || 0)}). Travelers: ${selectedLead.travelers || 'N/A'}.`,
+            text: `Converted from Lead (Destination: ${leadToConvert.destination}, Budget: ${formatPrice(leadToConvert.potentialValue || 0)}). Travelers: ${leadToConvert.travelers || 'N/A'}.`,
             author: currentUser?.name || 'System',
             date: new Date().toISOString()
         });
 
-        const inheritedCustomerNotes: any[] = (selectedLead.logs || []).map(l => ({
+        const inheritedCustomerNotes: any[] = (leadToConvert.logs || []).map(l => ({
             id: `NOTE-CUST-LD-${l.id}`,
             text: `[From Lead]: ${l.content}`,
             author: l.sender || 'System',
@@ -844,139 +858,68 @@ export const Leads: React.FC = () => {
         }));
 
         let parsedLeadPrefs: any = {};
-        if (typeof selectedLead.preferences === 'string') {
-            try { parsedLeadPrefs = JSON.parse(selectedLead.preferences); } catch {
-                parsedLeadPrefs = { dietary: [], flight: [], accommodation: [], note: selectedLead.preferences };
+        if (typeof leadToConvert.preferences === 'string') {
+            try { parsedLeadPrefs = JSON.parse(leadToConvert.preferences); } catch {
+                parsedLeadPrefs = { dietary: [], flight: [], accommodation: [], note: leadToConvert.preferences };
             }
-        } else if (typeof selectedLead.preferences === 'object' && selectedLead.preferences !== null) {
-            parsedLeadPrefs = selectedLead.preferences;
+        } else if (typeof leadToConvert.preferences === 'object' && leadToConvert.preferences !== null) {
+            parsedLeadPrefs = leadToConvert.preferences;
         }
 
-        if (existingCustomer) {
-            targetCustomerId = existingCustomer.id;
-            
-            // Proactively backfill missing customer fields & carry forward notes/preferences
-            try {
-                const updates: Partial<Customer> = {};
-                if (!existingCustomer.address && selectedLead.residentialAddress) updates.address = selectedLead.residentialAddress;
-                if (!existingCustomer.officeAddress && selectedLead.officeAddress) updates.officeAddress = selectedLead.officeAddress;
-                if (!existingCustomer.altPhone && selectedLead.altPhone) updates.altPhone = selectedLead.altPhone;
-                if (!existingCustomer.whatsapp && selectedLead.whatsapp) updates.whatsapp = selectedLead.whatsapp;
-                
-                const existingNoteIds = new Set((existingCustomer.notes || []).map(n => n.id));
-                const newNotesToAppend = inheritedCustomerNotes.filter(n => !existingNoteIds.has(n.id));
-                if (newNotesToAppend.length > 0) {
-                    updates.notes = [...newNotesToAppend, ...(existingCustomer.notes || [])];
-                }
+        const parsedPax = parsePaxString(leadToConvert.travelers);
+        const finalAdults = leadToConvert.paxAdult !== undefined ? leadToConvert.paxAdult : parsedPax.adults;
+        const finalChildren = leadToConvert.paxChild !== undefined ? leadToConvert.paxChild : parsedPax.children;
+        const finalInfants = leadToConvert.paxInfant !== undefined ? leadToConvert.paxInfant : parsedPax.infants;
+        const finalGuestsStr = leadToConvert.travelers || formatPaxString(finalAdults, finalChildren, finalInfants);
 
-                if (Object.keys(parsedLeadPrefs).length > 0) {
-                    updates.preferences = {
-                        ...(existingCustomer.preferences || {}),
-                        ...parsedLeadPrefs
-                    };
-                }
-
-                if (Object.keys(updates).length > 0) {
-                    await api.updateCustomer(existingCustomer.id, updates);
-                }
-            } catch (err) {
-                console.warn('Customer backfill failed:', err);
-            }
-        } else {
-            // Create new customer with carried forward notes and preferences
-            const newCustomerId = `CU-${Date.now()}`;
-            const newCustomer: Customer = {
-                id: newCustomerId,
-                name: selectedLead.name,
-                email: selectedLead.email,
-                phone: selectedLead.phone || '',
-                type: 'New',
-                status: 'Active',
-                joinedDate: new Date().toISOString(),
-                bookingsCount: 0,
-                totalSpent: 0,
-                address: selectedLead.residentialAddress || '',
-                officeAddress: selectedLead.officeAddress || '',
-                altPhone: selectedLead.altPhone || '',
-                whatsapp: selectedLead.whatsapp || '',
-                isWhatsappSame: selectedLead.isWhatsappSame !== undefined ? selectedLead.isWhatsappSame : true,
-                notes: inheritedCustomerNotes,
-                preferences: parsedLeadPrefs
-            };
-            try {
-                const createdCustomer = await addCustomer(newCustomer);
-                if (createdCustomer?.id) {
-                    targetCustomerId = createdCustomer.id;
-                } else {
-                    targetCustomerId = newCustomerId;
-                }
-            } catch (custErr: any) {
-                console.warn('[Lead Conversion] Customer add note:', custErr.message);
-                const cleanEmail = selectedLead.email?.trim().toLowerCase();
-                const matched = customers.find(c => c.email && c.email.trim().toLowerCase() === cleanEmail);
-                if (matched) {
-                    targetCustomerId = matched.id;
-                } else {
-                    targetCustomerId = newCustomerId;
-                }
-            }
-        }
-
-        const parsedPax = parsePaxString(selectedLead.travelers);
-        const finalAdults = selectedLead.paxAdult !== undefined ? selectedLead.paxAdult : parsedPax.adults;
-        const finalChildren = selectedLead.paxChild !== undefined ? selectedLead.paxChild : parsedPax.children;
-        const finalInfants = selectedLead.paxInfant !== undefined ? selectedLead.paxInfant : parsedPax.infants;
-        const finalGuestsStr = selectedLead.travelers || formatPaxString(finalAdults, finalChildren, finalInfants);
+        const fallbackStaffId = currentUser?.id && currentUser.id !== 999 ? currentUser.id : undefined;
+        const resolvedAssignedTo = leadToConvert.assignedTo || fallbackStaffId;
+        const resolvedAssignedStaffIds = leadToConvert.assignedStaffIds?.length
+            ? leadToConvert.assignedStaffIds
+            : (resolvedAssignedTo ? [resolvedAssignedTo] : []);
 
         try {
-            const newBooking = await addBooking({
-                id: '', // Will be set by DB (UUID auto-generated)
-                type: (selectedLead.type && ['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight'].includes(selectedLead.type) ? selectedLead.type : 'Tour') as BookingType,
-                customer: selectedLead.name,
-                customerId: targetCustomerId, // Linked Customer
-                email: selectedLead.email,
-                phone: selectedLead.phone,
-                title: `Trip to ${selectedLead.destination}`,
-                date: selectedLead.startDate || new Date().toISOString().split('T')[0],
-                endDate: selectedLead.endDate || undefined,
-                amount: selectedLead.potentialValue || 0,
-                status: BookingStatus.PENDING,
-                payment: 'Unpaid',
-                guests: finalGuestsStr,
-                details: `Converted from Lead. Destination: ${selectedLead.destination}. Budget: ${formatPrice(selectedLead.potentialValue || 0)}.`,
-                notes: inheritedBookingNotes,
-                assignedTo: selectedLead.assignedTo || staff?.id || currentUser?.id,
-                assignedStaffIds: selectedLead.assignedStaffIds || (selectedLead.assignedTo ? [selectedLead.assignedTo] : (currentUser?.id ? [currentUser.id] : [])),
-                partnerId: selectedLead.partnerId,
-                leadId: selectedLead.id,
-                
-                // Carry forward lead CRM details to Booking
-                whatsapp: selectedLead.whatsapp,
-                isWhatsappSame: selectedLead.isWhatsappSame,
-                altPhone: selectedLead.altPhone,
-                paxAdult: finalAdults,
-                paxChild: finalChildren,
-                paxInfant: finalInfants,
-                serviceType: selectedLead.serviceType,
-                residentialAddress: selectedLead.residentialAddress,
-                officeAddress: selectedLead.officeAddress
-            });
+            await convertLeadToBooking(
+                leadToConvert.id,
+                {
+                    type: (leadToConvert.type && ['Tour', 'Hotel', 'Car', 'Bus', 'Train', 'Flight'].includes(leadToConvert.type) ? leadToConvert.type : 'Tour') as BookingType,
+                    customer: leadToConvert.name || 'Unnamed Traveler',
+                    customerId: existingCustomer?.id || leadToConvert.customerId,
+                    email: leadToConvert.email,
+                    phone: leadToConvert.phone,
+                    title: `Trip to ${leadToConvert.destination}`,
+                    date: leadToConvert.startDate || new Date().toISOString().split('T')[0],
+                    endDate: leadToConvert.endDate || undefined,
+                    amount: leadToConvert.potentialValue || 0,
+                    status: BookingStatus.PENDING,
+                    payment: 'Unpaid',
+                    guests: finalGuestsStr,
+                    details: `Converted from Lead. Destination: ${leadToConvert.destination}. Budget: ${formatPrice(leadToConvert.potentialValue || 0)}.`,
+                    notes: inheritedBookingNotes,
+                    assignedTo: resolvedAssignedTo,
+                    assignedStaffIds: resolvedAssignedStaffIds,
+                    partnerId: leadToConvert.partnerId,
+                    leadId: leadToConvert.id,
+                    packageId: leadToConvert.packageId,
 
-            // Capture the DB-generated booking UUID from the response
-            const newBookingId: string | undefined = newBooking?.id || newBooking?.data?.id || undefined;
+                    // Carry forward lead CRM details to Booking
+                    whatsapp: leadToConvert.whatsapp,
+                    isWhatsappSame: leadToConvert.isWhatsappSame,
+                    altPhone: leadToConvert.altPhone,
+                    paxAdult: finalAdults,
+                    paxChild: finalChildren,
+                    paxInfant: finalInfants,
+                    serviceType: leadToConvert.serviceType,
+                    residentialAddress: leadToConvert.residentialAddress,
+                    officeAddress: leadToConvert.officeAddress
+                },
+                {
+                    allowMultiple,
+                    customerNotes: inheritedCustomerNotes,
+                    leadPreferences: parsedLeadPrefs
+                }
+            );
 
-            // Only mark lead as converted AFTER booking is saved successfully
-            // Also store the booking ID so the Convert button locks and won't re-fire
-            await updateLead(selectedLead.id, {
-                status: 'Converted',
-                convertedBookingId: newBookingId
-            });
-            await addLeadLog(selectedLead.id, {
-                id: `lg-conv-${Date.now()}`,
-                type: 'System',
-                content: `Lead converted to Booking${newBookingId ? ` (ID: ${newBookingId})` : ''}. Customer profile ${existingCustomer ? 'linked and synced' : 'created and synced'}.`,
-                timestamp: new Date().toISOString()
-            });
             toast.success('Lead converted to Booking! Now visible in Pending bookings.');
         } catch (err: any) {
             toast.error(err.message || 'Failed to convert lead to booking.');
@@ -2847,46 +2790,52 @@ export const Leads: React.FC = () => {
                                     <span className="text-xs font-bold">WhatsApp</span>
                                 </a>
                             </div>
-                            {hasPermission('leads', 'manage') && (
+                            {(canConvertLeadToBooking || hasPermission('leads', 'manage')) && (
                                 <>
                                     {/* ── Conversion Lock Guard ── */}
-                                    {selectedLead.status === 'Converted' && selectedLead.convertedBookingId ? (
-                                        // LOCKED: this lead is already tied to a booking
-                                        <div className="flex flex-col gap-2">
-                                            <div className="w-full py-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border-2 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 font-bold text-sm flex items-center justify-center gap-2 cursor-not-allowed select-none">
-                                                <CheckCircle2 size={16} className="text-emerald-500" />
-                                                Lead Already Converted to Booking
+                                    {canConvertLeadToBooking && (
+                                        selectedLead.status === 'Converted' && selectedLead.convertedBookingId ? (
+                                            // LOCKED: this lead is already tied to a booking
+                                            <div className="flex flex-col gap-2">
+                                                <div className="w-full py-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border-2 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 font-bold text-sm flex items-center justify-center gap-2 cursor-not-allowed select-none">
+                                                    <CheckCircle2 size={16} className="text-emerald-500" />
+                                                    Lead Already Converted to Booking
+                                                </div>
+                                                <p className="text-[10px] text-center text-slate-400 dark:text-slate-500">
+                                                    Delete the linked booking to re-enable conversion.
+                                                </p>
                                             </div>
-                                            <p className="text-[10px] text-center text-slate-400 dark:text-slate-500">
-                                                Delete the linked booking to re-enable conversion.
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        // ACTIVE: ready to convert
-                                        <button
-                                            onClick={handleConvertToBooking}
-                                            disabled={isConverting}
-                                            className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${
-                                                isConverting
-                                                    ? 'bg-slate-400 text-white cursor-wait opacity-80'
-                                                    : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 btn-glow'
-                                            }`}
-                                        >
-                                            {isConverting ? (
-                                                <>
-                                                    <div className="size-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                                                    Converting to Booking...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <CheckCircle2 size={16} /> Convert to Booking
-                                                </>
-                                            )}
-                                        </button>
+                                        ) : (
+                                            // ACTIVE: ready to convert
+                                            <button
+                                                onClick={() => handleConvertToBooking()}
+                                                disabled={isConverting}
+                                                className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${
+                                                    isConverting
+                                                        ? 'bg-slate-400 text-white cursor-wait opacity-80'
+                                                        : 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 btn-glow'
+                                                }`}
+                                            >
+                                                {isConverting ? (
+                                                    <>
+                                                        <div className="size-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                                        Converting to Booking...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CheckCircle2 size={16} /> Convert to Booking
+                                                    </>
+                                                )}
+                                            </button>
+                                        )
                                     )}
                                     {/* ─────────────────────────── */}
-                                    <button onClick={handleCreateQuotation} className="w-full py-3 mt-3 rounded-xl bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition-all border border-slate-200 dark:border-slate-700"><FileText size={16} /> Create Quotation</button>
-                                    <button onClick={() => navigate(`/admin/itinerary-builder?leadId=${selectedLead.id}`)} className="w-full py-3 mt-2 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 font-bold text-sm hover:bg-amber-500/20 flex items-center justify-center gap-2 transition-all border border-amber-500/30"><MapPin size={16} /> Build Custom Itinerary</button>
+                                    {hasPermission('leads', 'manage') && (
+                                        <>
+                                            <button onClick={handleCreateQuotation} className="w-full py-3 mt-3 rounded-xl bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center gap-2 transition-all border border-slate-200 dark:border-slate-700"><FileText size={16} /> Create Quotation</button>
+                                            <button onClick={() => navigate(`/admin/itinerary-builder?leadId=${selectedLead.id}`)} className="w-full py-3 mt-2 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 font-bold text-sm hover:bg-amber-500/20 flex items-center justify-center gap-2 transition-all border border-amber-500/30"><MapPin size={16} /> Build Custom Itinerary</button>
+                                        </>
+                                    )}
                                 </>
                             )}</div>
 

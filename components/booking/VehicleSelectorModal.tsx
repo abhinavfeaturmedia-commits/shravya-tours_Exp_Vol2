@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { VEHICLE_CATEGORIES, VEHICLE_MODELS, VehicleCategoryType, VehicleModel } from '../../constants/vehicleCatalog';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import {
+  VEHICLE_CATEGORIES,
+  VEHICLE_MODELS,
+  VehicleCategoryType,
+} from '../../constants/vehicleCatalog';
 import { VehicleCardImage } from '../ui/VehicleCardImage';
-import { BorderBeam } from 'border-beam';
 
 interface VehicleSelectorModalProps {
   isOpen: boolean;
@@ -19,296 +21,268 @@ export const VehicleSelectorModal: React.FC<VehicleSelectorModalProps> = ({
   selectedModelName,
   onSelectVehicle,
 }) => {
-  const [activeTab, setActiveTab] = useState<VehicleCategoryType | 'All'>(selectedCategory || 'All');
+  const titleId = useId();
+  const searchId = useId();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const pressedOutsideRef = useRef(false);
+
+  const [activeTab, setActiveTab] = useState<VehicleCategoryType | 'All'>('All');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Lock body scroll when modal is open to prevent background scrolling & overlapping elements
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
+    const dialog = dialogRef.current;
+    if (!dialog) return;
 
-  if (!isOpen) return null;
+    if (isOpen) {
+      setActiveTab(selectedCategory || 'All');
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [isOpen, selectedCategory]);
+
+  // Light-dismiss fallback when <dialog closedby="any"> is not natively supported
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || 'closedBy' in HTMLDialogElement.prototype) return;
+
+    const isOutside = (e: PointerEvent) => {
+      const r = dialog.getBoundingClientRect();
+      return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      pressedOutsideRef.current = isOutside(e);
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (pressedOutsideRef.current && isOutside(e)) {
+        dialog.close();
+      }
+      pressedOutsideRef.current = false;
+    };
+
+    dialog.addEventListener('pointerdown', onPointerDown);
+    dialog.addEventListener('pointerup', onPointerUp);
+    return () => {
+      dialog.removeEventListener('pointerdown', onPointerDown);
+      dialog.removeEventListener('pointerup', onPointerUp);
+    };
+  }, []);
 
   const filteredModels = VEHICLE_MODELS.filter((model) => {
     const matchesTab = activeTab === 'All' || model.category === activeTab;
+    const q = searchTerm.trim().toLowerCase();
     const matchesSearch =
-      model.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      model.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      model.category.toLowerCase().includes(searchTerm.toLowerCase());
+      !q ||
+      model.name.toLowerCase().includes(q) ||
+      model.brand.toLowerCase().includes(q) ||
+      model.category.toLowerCase().includes(q);
     return matchesTab && matchesSearch;
   });
 
-  const modalContent = (
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 sm:p-6 md:p-10 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="relative w-full max-w-5xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
-        
-        {/* Modal Header */}
-        <div className="p-5 sm:p-6 bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white flex items-center justify-between border-b border-slate-700/50">
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      onClose={() => {
+        if (dialogRef.current) dialogRef.current.returnValue = '';
+        onClose();
+      }}
+      {...({ closedby: 'any' } as any)}
+      className="selector-dialog w-[calc(100%-1.5rem)] max-w-5xl max-h-[90vh] p-0 m-auto bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+    >
+      <div className="flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="p-5 bg-slate-950 text-white flex items-center justify-between gap-4 border-b border-slate-800">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wider bg-primary/30 text-amber-300 border border-amber-400/30">
-                Vehicle Showcase & Fleet Catalog
-              </span>
-            </div>
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-              Select Your Preferred Ride
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-300 mt-1">
-              Explore categories, seating capacities, and top 3 models tailored for your comfort.
+            <h1 id={titleId} className="text-lg sm:text-xl font-black tracking-tight text-white">
+              Browse Fleet &amp; Vehicle Specs
+            </h1>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Compare seating capacity, luggage space, and vehicle models.
             </p>
           </div>
 
           <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-all hover:scale-105 active:scale-95"
-            aria-label="Close vehicle modal"
+            type="button"
+            onClick={() => dialogRef.current?.close()}
+            className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 flex items-center justify-center transition-colors shrink-0"
+            aria-label="Close vehicle fleet modal"
           >
-            <span className="material-symbols-outlined text-xl">close</span>
+            <span className="material-symbols-outlined text-xl" aria-hidden="true">
+              close
+            </span>
           </button>
         </div>
 
-        {/* Filter & Search Bar */}
+        {/* Filter & Search */}
         <div className="p-4 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
-          
-          {/* Category Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0 scrollbar-none">
+          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 [-ms-scrollbar-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button
+              type="button"
               onClick={() => setActiveTab('All')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-colors ${
                 activeTab === 'All'
-                  ? 'bg-slate-900 text-white dark:bg-primary dark:text-white shadow-md'
+                  ? 'bg-slate-900 text-white dark:bg-primary'
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              All Vehicles ({VEHICLE_MODELS.length})
+              All ({VEHICLE_MODELS.length})
             </button>
 
             {VEHICLE_CATEGORIES.map((cat) => (
               <button
                 key={cat.id}
+                type="button"
                 onClick={() => setActiveTab(cat.id)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-colors ${
                   activeTab === cat.id
-                    ? 'bg-primary text-white shadow-md shadow-primary/30'
+                    ? 'bg-primary text-white'
                     : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
-                <span className="material-symbols-outlined text-base">{cat.icon}</span>
+                <span className="material-symbols-outlined text-sm" aria-hidden="true">
+                  {cat.icon}
+                </span>
                 {cat.name}
               </button>
             ))}
           </div>
 
-          {/* Search Input */}
           <div className="relative w-full sm:w-64">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
+            <label htmlFor={searchId} className="visually-hidden">
+              Search vehicle models
+            </label>
+            <span
+              className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg pointer-events-none"
+              aria-hidden="true"
+            >
               search
             </span>
             <input
-              type="text"
+              id={searchId}
+              type="search"
+              autoFocus
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search Swift, Innova, Creta..."
-              className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              placeholder="Search Dzire, Innova, Creta..."
+              className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-white focus:ring-2 focus:ring-primary"
             />
           </div>
         </div>
 
-        {/* Vehicle Cards Grid */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-8 scrollbar-thin">
-          
-          {/* Category Summary Banner when filtering */}
-          {activeTab !== 'All' && (
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-100 to-slate-200 dark:from-slate-800/80 dark:to-slate-800/40 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-300">
-              {(() => {
-                const catInfo = VEHICLE_CATEGORIES.find((c) => c.id === activeTab);
-                if (!catInfo) return null;
-                return (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${catInfo.color} text-white flex items-center justify-center shadow-md`}>
-                        <span className="material-symbols-outlined text-2xl">{catInfo.icon}</span>
-                      </div>
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
-                          {catInfo.displayName}
-                        </h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {catInfo.tagline}
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        onSelectVehicle(activeTab, `Any ${catInfo.name}`);
-                        onClose();
-                      }}
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5 whitespace-nowrap self-end sm:self-auto"
-                    >
-                      <span className="material-symbols-outlined text-base">check_circle</span>
-                      Select Any {catInfo.name}
-                    </button>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-            {filteredModels.map((model) => {
-              const isSelected = selectedModelName === model.name;
-
-              return (
-                <BorderBeam key={model.id} size="md" colorVariant="ocean" active={isSelected}>
-                  <div
-                    className={`group relative bg-white dark:bg-slate-800/90 rounded-2xl border-2 transition-all duration-300 overflow-hidden flex flex-col hover:-translate-y-1 hover:shadow-xl ${
-                      isSelected
-                        ? 'border-primary shadow-lg shadow-primary/20 ring-2 ring-primary/30'
-                        : 'border-slate-200 dark:border-slate-700/80 hover:border-primary/50'
-                    }`}
-                  >
-                  {/* Model Image with Badge */}
-                  <div className="relative h-44 w-full bg-slate-100 dark:bg-slate-900 overflow-hidden">
-                    <VehicleCardImage
-                      src={model.image}
-                      fallbackSrc={model.fallbackImage}
-                      alt={model.name}
-                      category={model.category}
-                      modelName={model.name}
-                      brand={model.brand}
-                      badge={model.badge}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
-
-                    {model.badge && (
-                      <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-md">
-                        {model.badge}
-                      </span>
-                    )}
-
-                    <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-slate-900/80 text-white backdrop-blur-md">
-                      {model.category}
-                    </span>
-
-                    <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-white">
-                      <div>
-                        <span className="text-[11px] font-bold text-amber-300 block uppercase tracking-wider">
-                          {model.brand}
-                        </span>
-                        <h4 className="text-base font-black tracking-tight">{model.name}</h4>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Model Specifications & Details */}
-                  <div className="p-4 flex-1 flex flex-col justify-between space-y-4">
-                    
-                    {/* Specs Pills */}
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-700/50 flex items-center gap-2">
-                        <span className="material-symbols-outlined text-primary text-base">group</span>
-                        <div>
-                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Seating</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200">{model.seating}</span>
-                        </div>
-                      </div>
-
-                      <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-700/50 flex items-center gap-2">
-                        <span className="material-symbols-outlined text-amber-500 text-base">luggage</span>
-                        <div>
-                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Luggage</span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200 truncate block">{model.luggage}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Features List */}
-                    <div>
-                      <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">
-                        Key Features
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        {model.features.slice(0, 3).map((feat, i) => (
-                          <span
-                            key={i}
-                            className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-                          >
-                            ✓ {feat}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 italic">
-                      💡 {model.idealFor}
-                    </p>
-
-                    {/* Select Button */}
-                    <button
-                      onClick={() => {
-                        onSelectVehicle(model.category, model.name);
-                        onClose();
-                      }}
-                      className={`w-full py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md ${
-                        isSelected
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                          : 'bg-primary hover:bg-blue-600 text-white hover:shadow-lg hover:shadow-primary/30 active:scale-95'
-                      }`}
-                    >
-                      <span className="material-symbols-outlined text-base">
-                        {isSelected ? 'check_circle' : 'directions_car'}
-                      </span>
-                      {isSelected ? 'Selected Model' : `Select ${model.name}`}
-                    </button>
-                  </div>
-                </div>
-                </BorderBeam>
-              );
-            })}
-          </div>
-
-          {filteredModels.length === 0 && (
+        {/* Grid */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-100/50 dark:bg-slate-950/40">
+          {filteredModels.length === 0 ? (
             <div className="py-12 text-center text-slate-400">
-              <span className="material-symbols-outlined text-5xl mb-2">directions_car_off</span>
+              <span className="material-symbols-outlined text-4xl mb-2" aria-hidden="true">
+                directions_car_off
+              </span>
               <p className="font-bold text-sm text-slate-600 dark:text-slate-300">
-                No vehicles matched your search query.
+                No vehicles match your search.
               </p>
               <button
+                type="button"
                 onClick={() => {
                   setSearchTerm('');
                   setActiveTab('All');
                 }}
-                className="mt-3 px-4 py-1.5 bg-primary text-white text-xs font-bold rounded-xl"
+                className="mt-3 px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl"
               >
                 Reset Filters
               </button>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredModels.map((model) => {
+                const isSelected = selectedModelName === model.name;
+
+                return (
+                  <div
+                    key={model.id}
+                    className={`bg-white dark:bg-slate-800/90 rounded-2xl border transition-all overflow-hidden flex flex-col ${
+                      isSelected
+                        ? 'border-primary ring-2 ring-primary/30 shadow-md'
+                        : 'border-slate-200 dark:border-slate-700/80 hover:border-primary/50'
+                    }`}
+                  >
+                    <div className="relative h-40 w-full bg-slate-100 dark:bg-slate-900 overflow-hidden">
+                      <VehicleCardImage
+                        src={model.image}
+                        fallbackSrc={model.fallbackImage}
+                        alt={model.name}
+                        category={model.category}
+                        modelName={model.name}
+                        brand={model.brand}
+                        badge={model.badge}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent pointer-events-none" />
+                      <span className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-900/80 text-white">
+                        {model.category}
+                      </span>
+                      <div className="absolute bottom-2.5 left-3 right-3 text-white">
+                        <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
+                          {model.brand}
+                        </span>
+                        <h2 className="text-sm font-black tracking-tight">{model.name}</h2>
+                      </div>
+                    </div>
+
+                    <div className="p-4 flex-1 flex flex-col justify-between gap-3">
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                          {model.seating} · {model.luggage}
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {model.features.slice(0, 3).map((feat, i) => (
+                            <span
+                              key={i}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                            >
+                              ✓ {feat}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectVehicle(model.category, model.name);
+                          dialogRef.current?.close();
+                        }}
+                        className={`w-full py-2.5 rounded-xl font-bold text-xs transition-colors ${
+                          isSelected
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-primary hover:bg-blue-600 text-white'
+                        }`}
+                      >
+                        {isSelected ? 'Selected' : `Select ${model.name}`}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 
-        {/* Modal Footer */}
-        <div className="p-4 bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-          <span>All vehicles come with verified clean interiors & professional drivers.</span>
+        {/* Footer */}
+        <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
+          <span>Clean AC vehicles with experienced chauffeurs.</span>
           <button
-            onClick={onClose}
-            className="px-4 py-2 font-bold text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+            type="button"
+            onClick={() => dialogRef.current?.close()}
+            className="px-4 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 font-bold text-slate-800 dark:text-slate-200 rounded-xl transition-colors"
           >
             Close
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
-
-  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : null;
 };

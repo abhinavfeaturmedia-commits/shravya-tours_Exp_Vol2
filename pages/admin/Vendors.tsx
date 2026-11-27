@@ -1432,7 +1432,7 @@ export const Vendors: React.FC = () => {
             </div>
 
             {/* SLIDE-OVER DRAWER (Detailed View) */}
-            <div className={`fixed inset-0 z-[100] transition-opacity duration-300 ${selectedVendorId ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
+            <div className={`fixed inset-0 z-[250] transition-opacity duration-300 ${selectedVendorId ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedVendorId(null)}></div>
                 <div className={`absolute inset-y-0 right-0 w-full md:w-[650px] bg-white dark:bg-[#1A2633] shadow-2xl transform transition-transform duration-300 flex flex-col ${selectedVendorId ? 'translate-x-0' : 'translate-x-full'}`}>
                     {selectedVendor && (
@@ -2015,7 +2015,7 @@ export const Vendors: React.FC = () => {
             {/* Modal Components */}
             {/* Create / Edit Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col animate-in zoom-in-95 max-h-[90vh] overflow-hidden">
                         <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
                             <h2 className="text-xl font-bold text-slate-900 dark:text-white">{modalMode} Vendor</h2>
@@ -2139,7 +2139,7 @@ export const Vendors: React.FC = () => {
 
             {/* Payment Modal */}
             {isPaymentModalOpen && selectedVendor && (
-                <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] w-full max-w-sm rounded-2xl shadow-2xl animate-in zoom-in-95">
                         <div className="p-6 text-center">
                             <div className="size-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -2174,7 +2174,7 @@ export const Vendors: React.FC = () => {
 
             {/* Document Upload Modal */}
             {isDocModalOpen && selectedVendor && (
-                <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] w-full max-w-sm rounded-2xl shadow-2xl animate-in zoom-in-95">
                         <div className="p-6">
                             <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Upload Document</h3>
@@ -2254,7 +2254,7 @@ export const Vendors: React.FC = () => {
 
             {/* Export Modal */}
             {isExportModalOpen && (
-                <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+                <div className="fixed inset-0 z-[320] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white dark:bg-[#1A2633] w-full max-w-sm rounded-2xl shadow-2xl animate-in zoom-in-95">
                         <div className="p-6">
                             <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Export Vendors</h3>

@@ -142,7 +142,7 @@ export const Marketing: React.FC = () => {
             </div>
 
             {isModalOpen && (
-                <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
+                <div className="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white dark:bg-[#1A2633] p-6 rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in-95">
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-xl font-bold text-slate-900 dark:text-white">Create Campaign</h3>
